@@ -1,5 +1,5 @@
-streamlit>=1.30
 pandas>=2.0
 openpyxl>=3.1
-python-calamine
-xlsxwriter
+streamlit>=1.30
+python-calamine==0.2.3
+xlsxwriter==3.1.0
