@@ -1,50 +1,16 @@
 import sys
 from pathlib import Path
 from io import BytesIO
+import pandas as pd
+import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parent
 SRC_DIR = BASE_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import pandas as pd
-import streamlit as st
-
 from config import RAW_SHEET_NAME, SHEET_CONFIG_LINEA
 from extractor_maestro import procesar_dataframe_dinamico, CargarMaestro
-
-import re
-
-ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
-
-def limpiar_para_excel(df):
-    df_limpio = df.copy()
-
-    # 1. Desinfectar nombres de columnas
-    df_limpio.columns = [
-        ILLEGAL_CHARS_RE.sub('', str(col)).replace('_x0000_', '').replace('_x000D_', '').strip()
-        for col in df_limpio.columns
-    ]
-
-    # 2. Quitar zonas horarias en fechas
-    for col in df_limpio.columns:
-        if pd.api.types.is_datetime64_any_dtype(df_limpio[col]):
-            if hasattr(df_limpio[col].dt, 'tz') and df_limpio[col].dt.tz is not None:
-                df_limpio[col] = df_limpio[col].dt.tz_localize(None)
-
-    # 3. Limpiar celdas de texto
-    for col in df_limpio.columns:
-        if df_limpio[col].dtype == 'object' or df_limpio[col].dtype == 'string':
-            df_limpio[col] = df_limpio[col].apply(
-                lambda x: (
-                    ILLEGAL_CHARS_RE.sub('', str(x))
-                    .replace('_x0000_', '')
-                    .replace('_x000D_', '\n')
-                    .lstrip('=')
-                    if pd.notna(x) else x
-                )
-            )
-    return df_limpio
 
 
 st.set_page_config(page_title="Clasificador de Importaciones — Veritrade", page_icon="🗂️", layout="wide")
@@ -52,7 +18,7 @@ st.set_page_config(page_title="Clasificador de Importaciones — Veritrade", pag
 st.title("🗂️ Clasificador de Importaciones — Veritrade")
 st.caption(
     "Sube el archivo de datos crudos y el maestro de reglas de la línea de producto "
-    "que quieras procesar (UPS, Tableros, o cualquier otra ya armada con el mismo formato)."
+    "que quieras procesar (UPS, Tableros, o cualquier otra con la misma estructura)."
 )
 
 col1, col2 = st.columns(2)
@@ -79,17 +45,22 @@ if archivo_maestro is not None:
         st.caption(f"📄 Maestro detectado: línea de producto **{linea_detectada}**")
     except Exception as e:
         st.warning(
-            f"No pude leer la configuración del maestro (hoja '{SHEET_CONFIG_LINEA}'). "
-            f"Puedo seguir procesando, pero los nombres/métricas quedarán genéricos. Detalle: {e}"
+            f"No se pudo leer la configuración del maestro (hoja '{SHEET_CONFIG_LINEA}'). "
+            f"Se usará configuración genérica. Detalle: {e}"
         )
 
 procesar = st.button("▶️ Procesar", type="primary", disabled=not (archivo_raw and archivo_maestro))
 
 
-def procesar_datos_optimizados(raw_file, maestro_file, sheet):
+def procesar_datos_identico_al_main(raw_file, maestro_file, sheet):
+    # Resetear punteros de archivos subidos
     raw_file.seek(0)
     maestro_file.seek(0)
-    df_raw = pd.read_excel(raw_file, sheet_name=sheet, engine="calamine")
+
+    # 1. Leer exactamente igual que en main.py (usando openpyxl)
+    df_raw = pd.read_excel(raw_file, sheet_name=sheet, engine="openpyxl")
+
+    # 2. Procesar clasificación
     df_resultado = procesar_dataframe_dinamico(df_raw, ruta_maestro=maestro_file)
     return df_resultado
 
@@ -102,18 +73,17 @@ if procesar:
         valores_marca_default = set(maestro_info.dict_defaults.values()) or valores_marca_default
 
     try:
-        with st.spinner("Procesando clasificación de forma optimizada..."):
-            df_resultado = procesar_datos_optimizados(archivo_raw, archivo_maestro, hoja_raw)
+        with st.spinner("Procesando clasificación..."):
+            df_resultado = procesar_datos_identico_al_main(archivo_raw, archivo_maestro, hoja_raw)
 
         st.success(f"✅ Proceso completado: {len(df_resultado)} filas clasificadas ({linea}).")
 
-        buffer = BytesIO()
-        df_para_excel = limpiar_para_excel(df_resultado)
+        # 3. Guardar en memoria exactamente igual que en main.py (sin alterar tipos ni datos)
+        output_buffer = BytesIO()
+        with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
+            df_resultado.to_excel(writer, index=False)
         
-        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            df_para_excel.to_excel(writer, index=False)
-        
-        excel_data = buffer.getvalue()
+        excel_data = output_buffer.getvalue()
 
         st.download_button(
             label="⬇️ Descargar resultado (.xlsx)",
