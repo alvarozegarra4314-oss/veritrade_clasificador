@@ -15,15 +15,29 @@ from extractor_maestro import procesar_dataframe_dinamico, CargarMaestro
 
 import re
 
+# Regex para caracteres de control no imprimibles en XML/Excel
 ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
 
 def limpiar_para_excel(df):
     df_limpio = df.copy()
-    for col in df_limpio.select_dtypes(include="object").columns:
+    
+    # 1. Eliminar zonas horarias de columnas datetime (Excel nativo no soporta timezones)
+    for col in df_limpio.select_dtypes(include=['datetime', 'datetimetz']).columns:
+        if hasattr(df_limpio[col].dt, 'tz') and df_limpio[col].dt.tz is not None:
+            df_limpio[col] = df_limpio[col].dt.tz_localize(None)
+
+    # 2. Limpiar texto de caracteres ilegales, secuencias de escape de Excel y prefijos de fórmula
+    for col in df_limpio.select_dtypes(include=["object", "string"]).columns:
         df_limpio[col] = df_limpio[col].apply(
-            lambda x: ILLEGAL_CHARS_RE.sub('', str(x)) if pd.notna(x) else x
+            lambda x: (
+                ILLEGAL_CHARS_RE.sub('', str(x))
+                .replace('_x000D_', '\n')
+                .lstrip('=')  # Evita que Excel interprete la celda como una fórmula corrupta
+                if pd.notna(x) else x
+            )
         )
     return df_limpio
+
 
 st.set_page_config(page_title="Clasificador de Importaciones — Veritrade", page_icon="🗂️", layout="wide")
 
@@ -43,14 +57,6 @@ hoja_raw = st.text_input("Nombre de la hoja del archivo crudo", value=RAW_SHEET_
 
 
 def leer_info_maestro(archivo):
-    """
-    Da un vistazo rápido y liviano al maestro subido: qué línea de producto
-    es (hoja 0b_Config_Linea) y cuáles son sus marcas por defecto (hoja
-    1c_Marca_Por_Defecto). No procesa nada del dataset todavía -- solo
-    permite mostrarle al usuario qué maestro cargó, y generalizar el resto
-    de la app (título de métricas, nombre de archivo de salida) sin
-    depender de que sea justo la línea UPS.
-    """
     archivo.seek(0)
     maestro_info = CargarMaestro(ruta_excel=archivo)
     archivo.seek(0)
@@ -75,7 +81,6 @@ procesar = st.button("▶️ Procesar", type="primary", disabled=not (archivo_ra
 # Funciones optimizadas con Caché
 @st.cache_data(show_spinner=False)
 def procesar_datos_optimizados(raw_file, maestro_file, sheet):
-    # Lectura ultrarrápida con calamine
     df_raw = pd.read_excel(raw_file, sheet_name=sheet, engine="calamine")
     df_resultado = procesar_dataframe_dinamico(df_raw, ruta_maestro=maestro_file)
     return df_resultado
@@ -83,7 +88,7 @@ def procesar_datos_optimizados(raw_file, maestro_file, sheet):
 
 if procesar:
     linea = "Producto"
-    valores_marca_default = {"Marca Generica", "Marca Componentes"}  # respaldo si no se pudo leer el maestro
+    valores_marca_default = {"Marca Generica", "Marca Componentes"}
     if maestro_info is not None:
         linea = maestro_info.config_linea.get("LINEA_PRODUCTO", "Producto")
         valores_marca_default = set(maestro_info.dict_defaults.values()) or valores_marca_default
@@ -94,15 +99,19 @@ if procesar:
 
         st.success(f"✅ Proceso completado: {len(df_resultado)} filas clasificadas ({linea}).")
 
+        # Generación segura del archivo Excel en memoria
         buffer = BytesIO()
         df_para_excel = limpiar_para_excel(df_resultado)
-        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             df_para_excel.to_excel(writer, index=False)
-        buffer.seek(0)
+        
+        # Extracción exacta de los bytes del buffer
+        excel_data = buffer.getvalue()
 
         st.download_button(
             label="⬇️ Descargar resultado (.xlsx)",
-            data=buffer,
+            data=excel_data,
             file_name=f"Resultado_Clasificacion_{linea}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
@@ -111,8 +120,6 @@ if procesar:
             c1, c2, c3 = st.columns(3)
             c1.metric("Total filas", len(df_resultado))
 
-            # 'Es_Producto_Principal' lo genera procesar_dataframe_dinamico para
-            # CUALQUIER línea de producto -- no depende de que sea UPS.
             if "Es_Producto_Principal" in df_resultado.columns:
                 c2.metric(
                     f"{linea} identificados",
