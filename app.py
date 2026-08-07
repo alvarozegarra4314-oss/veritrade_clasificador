@@ -83,7 +83,11 @@ if procesar:
         st.success(f"✅ Proceso completado: {len(df_resultado)} filas clasificadas ({linea}).")
 
         st.subheader("Vista previa del resultado")
-        st.dataframe(df_resultado.head(50), use_container_width=True)
+        
+        df_preview = df_resultado.head(50).copy()
+        for col in df_preview.select_dtypes(include="object").columns:
+            df_preview[col] = df_preview[col].astype(str).replace("nan", "")
+            st.dataframe(df_preview, width="stretch")
 
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
