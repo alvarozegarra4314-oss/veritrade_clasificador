@@ -20,24 +20,31 @@ ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
 
 def limpiar_para_excel(df):
     df_limpio = df.copy()
-    
-    # 1. Eliminar zonas horarias de columnas datetime (Excel nativo no soporta timezones)
+
+    # 1. Desinfectar nombres de columnas
+    df_limpio.columns = [
+        ILLEGAL_CHARS_RE.sub('', str(col)).replace('_x0000_', '').strip()
+        for col in df_limpio.columns
+    ]
+
+    # 2. Quitar zonas horarias en fechas
     for col in df_limpio.select_dtypes(include=['datetime', 'datetimetz']).columns:
         if hasattr(df_limpio[col].dt, 'tz') and df_limpio[col].dt.tz is not None:
             df_limpio[col] = df_limpio[col].dt.tz_localize(None)
 
-    # 2. Limpiar texto de caracteres ilegales, secuencias de escape de Excel y prefijos de fórmula
-    for col in df_limpio.select_dtypes(include=["object", "string"]).columns:
-        df_limpio[col] = df_limpio[col].apply(
-            lambda x: (
-                ILLEGAL_CHARS_RE.sub('', str(x))
-                .replace('_x000D_', '\n')
-                .lstrip('=')  # Evita que Excel interprete la celda como una fórmula corrupta
-                if pd.notna(x) else x
+    # 3. Limpiar celdas de texto
+    for col in df_limpio.columns:
+        if df_limpio[col].dtype == 'object' or df_limpio[col].dtype == 'string':
+            df_limpio[col] = df_limpio[col].apply(
+                lambda x: (
+                    ILLEGAL_CHARS_RE.sub('', str(x))
+                    .replace('_x0000_', '')
+                    .replace('_x000D_', '\n')
+                    .lstrip('=')
+                    if pd.notna(x) else x
+                )
             )
-        )
     return df_limpio
-
 
 st.set_page_config(page_title="Clasificador de Importaciones — Veritrade", page_icon="🗂️", layout="wide")
 
@@ -79,12 +86,12 @@ procesar = st.button("▶️ Procesar", type="primary", disabled=not (archivo_ra
 
 
 # Funciones optimizadas con Caché
-@st.cache_data(show_spinner=False)
 def procesar_datos_optimizados(raw_file, maestro_file, sheet):
+    raw_file.seek(0)
+    maestro_file.seek(0)
     df_raw = pd.read_excel(raw_file, sheet_name=sheet, engine="calamine")
     df_resultado = procesar_dataframe_dinamico(df_raw, ruta_maestro=maestro_file)
     return df_resultado
-
 
 if procesar:
     linea = "Producto"

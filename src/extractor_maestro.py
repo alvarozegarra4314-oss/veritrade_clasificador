@@ -88,8 +88,7 @@ class CargarMaestro:
 
         self._cargar_y_precompilar()
 
-    def _cargar_y_precompilar(self):
-        # Intentar usar calamine si está disponible para lectura ultrarrápida del maestro
+def _cargar_y_precompilar(self):
         engine = None
         try:
             import python_calamine
@@ -97,100 +96,97 @@ class CargarMaestro:
         except ImportError:
             engine = "openpyxl"
 
-        # 0. Config de la línea de producto (variable/valor que define el
-        #    "producto principal completo"). Si el maestro no tiene esta
-        #    hoja todavía, se usan valores por defecto y se avisa.
-        try:
-            df_cfg = pd.read_excel(self.ruta_excel, sheet_name=SHEET_CONFIG_LINEA, engine=engine)
-            self.config_linea = dict(zip(df_cfg['Parametro'], df_cfg['Valor']))
-        except (ValueError, KeyError):
-            print(
-                f"⚠️  No encontré la hoja '{SHEET_CONFIG_LINEA}' en {self.ruta_excel}. "
-                "Usando valores por defecto (Tipo_Producto_Detallado == 'UPS Sistema Completo')."
-            )
-            self.config_linea = {
-                "VARIABLE_PRODUCTO_PRINCIPAL": "Tipo_Producto_Detallado",
-                "VALOR_PRODUCTO_PRINCIPAL": "UPS Sistema Completo",
-            }
-
-        # 1. Maestro de Marcas
-        df_marcas = pd.read_excel(self.ruta_excel, sheet_name=SHEET_MAESTRO_MARCAS, engine=engine)
-        if 'Prioridad' in df_marcas.columns:
-            df_marcas = df_marcas.sort_values(by='Prioridad')
-
-        for _, row in df_marcas.iterrows():
-            patron = limpiar_texto(str(row.get('Patron_Busqueda', '')))
-            estandar = row.get('Marca_Estandar', '')
-            if patron and pd.notna(estandar):
-                self.lista_marcas.append((patron, str(estandar)))
-
-        # 2. Stopwords
-        df_stopwords = pd.read_excel(self.ruta_excel, sheet_name=SHEET_STOPWORDS, engine=engine)
-        self.stopwords = set(
-            limpiar_texto(str(x)) for x in df_stopwords['Palabra_Ignorar'].dropna()
-        )
-
-        # 3. Patrones Regex Marcas
-        df_regex = pd.read_excel(self.ruta_excel, sheet_name=SHEET_PATRONES_REGEX, engine=engine)
-        df_regex = df_regex.sort_values(by='Orden_Prioridad')
-        for pat in df_regex['Pattern_Regex'].dropna().astype(str):
+        # pd.ExcelFile permite leer múltiples hojas sin agotar el archivo en memoria
+        with pd.ExcelFile(self.ruta_excel, engine=engine) as xls:
+            # 0. Configuración de la línea
             try:
-                self.patrones_regex.append(re.compile(pat, re.IGNORECASE))
-            except re.error:
-                continue
+                if SHEET_CONFIG_LINEA in xls.sheet_names:
+                    df_cfg = pd.read_excel(xls, sheet_name=SHEET_CONFIG_LINEA)
+                    self.config_linea = dict(zip(df_cfg['Parametro'], df_cfg['Valor']))
+                else:
+                    raise ValueError()
+            except Exception:
+                self.config_linea = {
+                    "VARIABLE_PRODUCTO_PRINCIPAL": "Tipo_Producto_Detallado",
+                    "VALOR_PRODUCTO_PRINCIPAL": "UPS Sistema Completo",
+                }
 
-        # 4. Marca por defecto según si la fila es o no el "producto
-        #    principal" (columna 'Es_Producto_Principal', antes 'Es_UPS').
-        df_defaults = pd.read_excel(self.ruta_excel, sheet_name=SHEET_MARCAS_DEFAULT, engine=engine)
-        col_bool = df_defaults.columns[0]
-        for _, row in df_defaults.iterrows():
-            key = bool(row[col_bool])
-            self.dict_defaults[key] = str(row['Marca_Default'])
+            # 1. Maestro de Marcas
+            df_marcas = pd.read_excel(xls, sheet_name=SHEET_MAESTRO_MARCAS)
+            if 'Prioridad' in df_marcas.columns:
+                df_marcas = df_marcas.sort_values(by='Prioridad')
 
-        # 5. Reglas de Características (100% genérico: cualquier Variable
-        #    que exista en la hoja, para cualquier línea de producto)
-        df_carac_raw = pd.read_excel(self.ruta_excel, sheet_name=SHEET_REGLAS_CARACTERISTICAS, engine=engine)
-        df_carac_raw = df_carac_raw.dropna(subset=['Palabra_Clave'])
+            for _, row in df_marcas.iterrows():
+                patron = limpiar_texto(str(row.get('Patron_Busqueda', '')))
+                estandar = row.get('Marca_Estandar', '')
+                if patron and pd.notna(estandar):
+                    self.lista_marcas.append((patron, str(estandar)))
 
-        agrupado = (
-            df_carac_raw
-            .groupby(['Variable', 'Valor_Resultado', 'Prioridad'])['Palabra_Clave']
-            .apply(list)
-            .reset_index()
-        )
-        agrupado['Patron_Busqueda'] = agrupado['Palabra_Clave'].apply(construir_patron_desde_palabras)
-        agrupado = agrupado.rename(columns={'Prioridad': 'Orden_Prioridad'}).sort_values(by=['Variable', 'Orden_Prioridad'])
+            # 2. Stopwords
+            df_stopwords = pd.read_excel(xls, sheet_name=SHEET_STOPWORDS)
+            self.stopwords = set(
+                limpiar_texto(str(x)) for x in df_stopwords['Palabra_Ignorar'].dropna()
+            )
 
-        for variable, group in agrupado.groupby('Variable'):
-            reglas_var = []
-            for _, fila in group.iterrows():
-                patron_str = str(fila['Patron_Busqueda']).strip()
-                resultado = fila['Valor_Resultado']
-                if patron_str:
-                    try:
-                        regex_compilado = re.compile(fr'\b({patron_str})\b', re.IGNORECASE)
-                        reglas_var.append((regex_compilado, resultado))
-                    except re.error:
-                        continue
-            self.dict_caracteristicas[variable] = reglas_var
+            # 3. Patrones Regex Marcas
+            df_regex = pd.read_excel(xls, sheet_name=SHEET_PATRONES_REGEX)
+            df_regex = df_regex.sort_values(by='Orden_Prioridad')
+            for pat in df_regex['Pattern_Regex'].dropna().astype(str):
+                try:
+                    self.patrones_regex.append(re.compile(pat, re.IGNORECASE))
+                except re.error:
+                    continue
 
-        # 6. Patrones de atributos numéricos (potencia, o cualquier otro
-        #    atributo numérico que otra línea necesite extraer)
-        df_pot = pd.read_excel(self.ruta_excel, sheet_name=SHEET_PATRONES_POTENCIA, engine=engine)
-        df_pot = df_pot.sort_values(by=['Variable', 'Orden_Prioridad'])
+            # 4. Defaults
+            df_defaults = pd.read_excel(xls, sheet_name=SHEET_MARCAS_DEFAULT)
+            col_bool = df_defaults.columns[0]
+            for _, row in df_defaults.iterrows():
+                key = bool(row[col_bool])
+                self.dict_defaults[key] = str(row['Marca_Default'])
 
-        for variable, group in df_pot.groupby('Variable'):
-            patrones_var = []
-            for _, fila in group.iterrows():
-                patron_str = str(fila['Pattern_Regex']).strip()
-                mult = float(fila.get('Multiplicador_kVA', 1.0))
-                if patron_str:
-                    try:
-                        regex_compilado = re.compile(patron_str, re.IGNORECASE)
-                        patrones_var.append((regex_compilado, mult))
-                    except re.error:
-                        continue
-            self.dict_potencia[variable] = patrones_var
+            # 5. Reglas de Características
+            df_carac_raw = pd.read_excel(xls, sheet_name=SHEET_REGLAS_CARACTERISTICAS)
+            df_carac_raw = df_carac_raw.dropna(subset=['Palabra_Clave'])
+
+            agrupado = (
+                df_carac_raw
+                .groupby(['Variable', 'Valor_Resultado', 'Prioridad'])['Palabra_Clave']
+                .apply(list)
+                .reset_index()
+            )
+            agrupado['Patron_Busqueda'] = agrupado['Palabra_Clave'].apply(construir_patron_desde_palabras)
+            agrupado = agrupado.rename(columns={'Prioridad': 'Orden_Prioridad'}).sort_values(by=['Variable', 'Orden_Prioridad'])
+
+            for variable, group in agrupado.groupby('Variable'):
+                reglas_var = []
+                for _, fila in group.iterrows():
+                    patron_str = str(fila['Patron_Busqueda']).strip()
+                    resultado = fila['Valor_Resultado']
+                    if patron_str:
+                        try:
+                            regex_compilado = re.compile(fr'\b({patron_str})\b', re.IGNORECASE)
+                            reglas_var.append((regex_compilado, resultado))
+                        except re.error:
+                            continue
+                self.dict_caracteristicas[variable] = reglas_var
+
+            # 6. Patrones de Potencia
+            df_pot = pd.read_excel(xls, sheet_name=SHEET_PATRONES_POTENCIA)
+            df_pot = df_pot.sort_values(by=['Variable', 'Orden_Prioridad'])
+
+            for variable, group in df_pot.groupby('Variable'):
+                patrones_var = []
+                for _, fila in group.iterrows():
+                    patron_str = str(fila['Pattern_Regex']).strip()
+                    mult = float(fila.get('Multiplicador_kVA', 1.0))
+                    if patron_str:
+                        try:
+                            regex_compilado = re.compile(patron_str, re.IGNORECASE)
+                            patrones_var.append((regex_compilado, mult))
+                        except re.error:
+                            continue
+                    self.dict_potencia[variable] = patrones_var
+
 
     @property
     def variable_producto_principal(self) -> str:
