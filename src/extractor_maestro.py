@@ -1,20 +1,10 @@
+import sys
 import re
 import unicodedata
-import pandas as pd
 from pathlib import Path
-from config import (
-    PATH_MAESTRO,
-    SHEET_CONFIG_LINEA,
-    SHEET_MAESTRO_MARCAS,
-    SHEET_STOPWORDS,
-    SHEET_PATRONES_REGEX,
-    SHEET_MARCAS_DEFAULT,
-    SHEET_REGLAS_CARACTERISTICAS,
-    SHEET_PATRONES_POTENCIA,
-    COL_DESCRIPCION
-)
+import pandas as pd
+import numpy as np
 
-VALORES_MARCA_NULA = {'S/M', 'SIN MARCA', 'NO INDICA', 'N/A', 'NONE', 'S/N', '_X0000_'}
 
 def limpiar_texto(texto):
     if not texto or pd.isna(texto):
@@ -23,6 +13,27 @@ def limpiar_texto(texto):
     nfkd_form = unicodedata.normalize('NFKD', texto_str)
     sin_tildes = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
     return sin_tildes.upper().strip()
+
+
+def parse_bool(val):
+    """Convierte texto o números a booleano de forma segura en Python."""
+    if pd.isna(val):
+        return False
+    if isinstance(val, bool):
+        return val
+    val_str = str(val).strip().upper()
+    return val_str in ['TRUE', 'VERDADERO', '1', 'T', 'SI', 'YES']
+
+
+def parse_float(val, default=1.0):
+    """Convierte un multiplicador a float de forma segura sin retornar NaN."""
+    if pd.isna(val):
+        return default
+    try:
+        f = float(val)
+        return f if not np.isnan(f) else default
+    except (ValueError, TypeError):
+        return default
 
 
 def construir_patron_desde_palabras(lista_palabras):
@@ -36,137 +47,169 @@ def construir_patron_desde_palabras(lista_palabras):
     return '|'.join(partes)
 
 
-def parsear_descripcion1(texto_raw):
-    if not texto_raw or pd.isna(texto_raw):
-        return {"producto": "", "marca": "", "modelo": "", "producto_limpio": "", "marca_limpia": ""}
-
-    partes = [p.strip() for p in str(texto_raw).split(',')]
-    prod = partes[0] if len(partes) > 0 else ""
-    marca = partes[1] if len(partes) > 1 else ""
-    modelo = ", ".join(partes[2:]) if len(partes) > 2 else ""
-
-    return {
-        "producto": prod,
-        "marca": marca,
-        "modelo": modelo,
-        "producto_limpio": limpiar_texto(prod),
-        "marca_limpia": limpiar_texto(marca)
-    }
+def identificar_columnas_descripcion(df_columns):
+    """Detecta de forma dinámica las columnas que contienen descripciones comerciales."""
+    cols_desc = []
+    for col in df_columns:
+        c_upper = str(col).strip().upper()
+        if any(k in c_upper for k in ['DESCRIPCION', 'DESC_', 'DESC ', 'DETALLE', 'MERCADERIA', 'COMMODITY']):
+            cols_desc.append(col)
+    
+    # Si no se detectó ninguna por nombre, buscar columnas de tipo texto
+    if not cols_desc:
+        cols_desc = list(df_columns)
+        
+    return cols_desc
 
 
 class CargarMaestro:
-    def __init__(self, ruta_excel=PATH_MAESTRO):
+    def __init__(self, ruta_excel):
         self.ruta_excel = ruta_excel
         self.config_linea = {}
         self.lista_marcas = []
         self.stopwords = set()
         self.patrones_regex = []
-        self.dict_defaults = {}
+        self.dict_defaults = {True: "Marca Principal", False: "Marca Componentes"}
         self.dict_caracteristicas = {}
         self.dict_potencia = {}
+        self.variables_categoricas = []
+        self.variables_potencia = []
 
         self._cargar_y_precompilar()
+
+    def _buscar_hoja(self, sheet_names, palabras_clave):
+        for s in sheet_names:
+            for kw in palabras_clave:
+                if kw.lower() in s.lower():
+                    return s
+        return None
 
     def _cargar_y_precompilar(self):
         if hasattr(self.ruta_excel, 'seek'):
             self.ruta_excel.seek(0)
 
-        engine = None
-        try:
-            import python_calamine
-            engine = "calamine"
-        except ImportError:
-            engine = "openpyxl"
+        with pd.ExcelFile(self.ruta_excel) as xls:
+            sheets = xls.sheet_names
 
-        with pd.ExcelFile(self.ruta_excel, engine=engine) as xls:
-            # 0. Configuración de la línea
-            try:
-                if SHEET_CONFIG_LINEA in xls.sheet_names:
-                    df_cfg = pd.read_excel(xls, sheet_name=SHEET_CONFIG_LINEA)
-                    self.config_linea = dict(zip(df_cfg['Parametro'], df_cfg['Valor']))
-                else:
-                    raise ValueError()
-            except Exception:
-                self.config_linea = {
-                    "VARIABLE_PRODUCTO_PRINCIPAL": "Tipo_Producto_Detallado",
-                    "VALOR_PRODUCTO_PRINCIPAL": "UPS Sistema Completo",
-                }
+            s_cfg = self._buscar_hoja(sheets, ["Config_Linea", "0b_Config", "Config"])
+            s_marcas = self._buscar_hoja(sheets, ["Maestro_Marcas", "1_Marcas", "Marcas"])
+            s_stopwords = self._buscar_hoja(sheets, ["Stopwords", "1b_Palabras_Ignorar", "Palabras_Ignorar", "Ignorar"])
+            s_defaults = self._buscar_hoja(sheets, ["Marcas_Default", "1c_Marca_Por_Defecto", "Marca_Por_Defecto", "Default"])
+            s_carac = self._buscar_hoja(sheets, ["Reglas_Caracteristicas", "2_Caracteristicas", "Caracteristicas"])
+            s_pot = self._buscar_hoja(sheets, ["Patrones_Potencia", "3_Tecnico_Potencia", "Tecnico_Potencia", "Potencia"])
+            s_regex = self._buscar_hoja(sheets, ["Patrones_Regex", "4_Tecnico_RegexMarca", "RegexMarca", "Regex"])
 
-            # 1. Maestro de Marcas
-            df_marcas = pd.read_excel(xls, sheet_name=SHEET_MAESTRO_MARCAS)
-            if 'Prioridad' in df_marcas.columns:
-                df_marcas = df_marcas.sort_values(by='Prioridad')
+            # 0. Config Linea
+            if s_cfg:
+                df_cfg = pd.read_excel(xls, sheet_name=s_cfg)
+                df_cfg.columns = [str(c).strip() for c in df_cfg.columns]
+                col_p = [c for c in df_cfg.columns if 'PARAMETRO' in c.upper() or 'PARAM' in c.upper()][0]
+                col_v = [c for c in df_cfg.columns if 'VALOR' in c.upper() or 'VAL' in c.upper()][0]
+                self.config_linea = dict(zip(df_cfg[col_p].astype(str).str.strip(), df_cfg[col_v].astype(str).str.strip()))
 
-            for _, row in df_marcas.iterrows():
-                patron = limpiar_texto(str(row.get('Patron_Busqueda', '')))
-                estandar = row.get('Marca_Estandar', '')
-                if patron and pd.notna(estandar):
-                    self.lista_marcas.append((patron, str(estandar)))
+            # 1. Marcas
+            if s_marcas:
+                df_marcas = pd.read_excel(xls, sheet_name=s_marcas)
+                df_marcas.columns = [str(c).strip() for c in df_marcas.columns]
+                col_pat = [c for c in df_marcas.columns if 'PATRON' in c.upper() or 'BUSQUEDA' in c.upper()][0]
+                col_est = [c for c in df_marcas.columns if 'MARCA' in c.upper() or 'ESTANDAR' in c.upper()][0]
+                
+                if 'Prioridad' in df_marcas.columns:
+                    df_marcas = df_marcas.sort_values(by='Prioridad')
+                    
+                for _, row in df_marcas.iterrows():
+                    patron = limpiar_texto(str(row.get(col_pat, '')))
+                    estandar = row.get(col_est, '')
+                    if patron and pd.notna(estandar):
+                        self.lista_marcas.append((patron, str(estandar).strip()))
 
             # 2. Stopwords
-            df_stopwords = pd.read_excel(xls, sheet_name=SHEET_STOPWORDS)
-            self.stopwords = set(
-                limpiar_texto(str(x)) for x in df_stopwords['Palabra_Ignorar'].dropna()
-            )
+            if s_stopwords:
+                df_sw = pd.read_excel(xls, sheet_name=s_stopwords)
+                col_sw = df_sw.columns[0]
+                self.stopwords = set(limpiar_texto(str(x)) for x in df_sw[col_sw].dropna())
 
-            # 3. Patrones Regex Marcas
-            df_regex = pd.read_excel(xls, sheet_name=SHEET_PATRONES_REGEX)
-            df_regex = df_regex.sort_values(by='Orden_Prioridad')
-            for pat in df_regex['Pattern_Regex'].dropna().astype(str):
-                try:
-                    self.patrones_regex.append(re.compile(pat, re.IGNORECASE))
-                except re.error:
-                    continue
+            # 3. Regex Marcas
+            if s_regex:
+                df_reg = pd.read_excel(xls, sheet_name=s_regex)
+                df_reg.columns = [str(c).strip() for c in df_reg.columns]
+                if 'Orden_Prioridad' in df_reg.columns:
+                    df_reg = df_reg.sort_values(by='Orden_Prioridad')
+                cols_pat = [c for c in df_reg.columns if any(k in c.lower() for k in ['pattern', 'patron', 'regex'])]
+                col_pat = cols_pat[0] if cols_pat else df_reg.columns[-1]
+                for pat in df_reg[col_pat].dropna().astype(str):
+                    try:
+                        self.patrones_regex.append(re.compile(pat, re.IGNORECASE))
+                    except re.error:
+                        continue
 
             # 4. Defaults
-            df_defaults = pd.read_excel(xls, sheet_name=SHEET_MARCAS_DEFAULT)
-            col_bool = df_defaults.columns[0]
-            for _, row in df_defaults.iterrows():
-                key = bool(row[col_bool])
-                self.dict_defaults[key] = str(row['Marca_Default'])
+            if s_defaults:
+                df_def = pd.read_excel(xls, sheet_name=s_defaults)
+                col_bool = df_def.columns[0]
+                col_val = df_def.columns[1]
+                for _, row in df_def.iterrows():
+                    key = parse_bool(row[col_bool])
+                    self.dict_defaults[key] = str(row[col_val]).strip()
 
-            # 5. Reglas de Características
-            df_carac_raw = pd.read_excel(xls, sheet_name=SHEET_REGLAS_CARACTERISTICAS)
-            df_carac_raw = df_carac_raw.dropna(subset=['Palabra_Clave'])
+            # 5. Características Categóricas
+            if s_carac:
+                df_carac = pd.read_excel(xls, sheet_name=s_carac)
+                df_carac.columns = [str(c).strip() for c in df_carac.columns]
+                col_kw = [c for c in df_carac.columns if 'PALABRA' in c.upper() or 'CLAVE' in c.upper()][0]
+                df_carac = df_carac.dropna(subset=[col_kw])
+                
+                prio_col = 'Prioridad' if 'Prioridad' in df_carac.columns else 'Orden_Prioridad'
+                if prio_col not in df_carac.columns:
+                    df_carac[prio_col] = 1
 
-            agrupado = (
-                df_carac_raw
-                .groupby(['Variable', 'Valor_Resultado', 'Prioridad'])['Palabra_Clave']
-                .apply(list)
-                .reset_index()
-            )
-            agrupado['Patron_Busqueda'] = agrupado['Palabra_Clave'].apply(construir_patron_desde_palabras)
-            agrupado = agrupado.rename(columns={'Prioridad': 'Orden_Prioridad'}).sort_values(by=['Variable', 'Orden_Prioridad'])
+                agrupado = (
+                    df_carac
+                    .groupby(['Variable', 'Valor_Resultado', prio_col])[col_kw]
+                    .apply(list)
+                    .reset_index()
+                )
+                agrupado['Patron_Busqueda'] = agrupado[col_kw].apply(construir_patron_desde_palabras)
+                agrupado = agrupado.sort_values(by=['Variable', prio_col])
 
-            for variable, group in agrupado.groupby('Variable'):
-                reglas_var = []
-                for _, fila in group.iterrows():
-                    patron_str = str(fila['Patron_Busqueda']).strip()
-                    resultado = fila['Valor_Resultado']
-                    if patron_str:
-                        try:
-                            regex_compilado = re.compile(fr'\b({patron_str})\b', re.IGNORECASE)
-                            reglas_var.append((regex_compilado, resultado))
-                        except re.error:
-                            continue
-                self.dict_caracteristicas[variable] = reglas_var
+                for var, group in agrupado.groupby('Variable'):
+                    self.variables_categoricas.append(var)
+                    reglas_var = []
+                    for _, fila in group.iterrows():
+                        patron_str = str(fila['Patron_Busqueda']).strip()
+                        resultado = fila['Valor_Resultado']
+                        if patron_str:
+                            try:
+                                regex_compilado = re.compile(fr'(?:^|(?<=\W))({patron_str})(?:$|(?=\W))', re.IGNORECASE)
+                                reglas_var.append((regex_compilado, resultado))
+                            except re.error:
+                                continue
+                    self.dict_caracteristicas[var] = reglas_var
 
-            # 6. Patrones de Potencia
-            df_pot = pd.read_excel(xls, sheet_name=SHEET_PATRONES_POTENCIA)
-            df_pot = df_pot.sort_values(by=['Variable', 'Orden_Prioridad'])
+            # 6. Potencia y Métricas Numéricas
+            if s_pot:
+                df_pot = pd.read_excel(xls, sheet_name=s_pot)
+                df_pot.columns = [str(c).strip() for c in df_pot.columns]
+                if 'Orden_Prioridad' in df_pot.columns:
+                    df_pot = df_pot.sort_values(by=['Variable', 'Orden_Prioridad'])
 
-            for variable, group in df_pot.groupby('Variable'):
-                patrones_var = []
-                for _, fila in group.iterrows():
-                    patron_str = str(fila['Pattern_Regex']).strip()
-                    mult = float(fila.get('Multiplicador_kVA', 1.0))
-                    if patron_str:
-                        try:
-                            regex_compilado = re.compile(patron_str, re.IGNORECASE)
-                            patrones_var.append((regex_compilado, mult))
-                        except re.error:
-                            continue
-                    self.dict_potencia[variable] = patrones_var
+                col_pat_pot = [c for c in df_pot.columns if 'PATTRN' in c.upper() or 'PATRON' in c.upper() or 'REGEX' in c.upper()][0]
+                col_mult_pot = [c for c in df_pot.columns if 'MULT' in c.upper() or 'KVA' in c.upper()]
+                col_mult = col_mult_pot[0] if col_mult_pot else None
+
+                for var, group in df_pot.groupby('Variable'):
+                    self.variables_potencia.append(var)
+                    patrones_var = []
+                    for _, fila in group.iterrows():
+                        patron_str = str(fila[col_pat_pot]).strip()
+                        mult = parse_float(fila.get(col_mult, 1.0)) if col_mult else 1.0
+                        if patron_str:
+                            try:
+                                regex_compilado = re.compile(patron_str, re.IGNORECASE)
+                                patrones_var.append((regex_compilado, mult))
+                            except re.error:
+                                continue
+                    self.dict_potencia[var] = patrones_var
 
     @property
     def variable_producto_principal(self) -> str:
@@ -174,192 +217,135 @@ class CargarMaestro:
 
     @property
     def valor_producto_principal(self) -> str:
-        return self.config_linea.get("VALOR_PRODUCTO_PRINCIPAL", "UPS Sistema Completo")
+        return self.config_linea.get("VALOR_PRODUCTO_PRINCIPAL", "")
 
 
-CargarMaestroUPS = CargarMaestro
+def extraer_marca(desc, maestro):
+    desc_clean = limpiar_texto(desc)
+    if not desc_clean:
+        return None, None
 
-REGEX_RESPALDO_VA = re.compile(r'\b(\d+[\.,]?\d*)\s*(VA|KVA|KW)\b', re.IGNORECASE)
+    for regex_comp in maestro.patrones_regex:
+        m = regex_comp.search(desc_clean)
+        if m:
+            candidato = m.group(1).strip()
+            if candidato not in maestro.stopwords:
+                return candidato, "Regex Directa"
+
+    for patron, estandar in maestro.lista_marcas:
+        if re.search(fr'(?:^|(?<=\W)){re.escape(patron)}(?:$|(?=\W))', desc_clean):
+            return estandar, "Diccionario Marcas"
+
+    return None, None
 
 
-def evaluar_caracteristica_categorica_opt(texto_prep, variable, maestro):
-    if not texto_prep:
+def evaluar_caracteristica_categorica_opt(desc, var_name, maestro):
+    desc_clean = limpiar_texto(desc)
+    if not desc_clean:
         return None
-
-    reglas_var = maestro.dict_caracteristicas.get(variable, [])
-    for regex_compilado, resultado in reglas_var:
-        if regex_compilado.search(texto_prep):
+    reglas = maestro.dict_caracteristicas.get(var_name, [])
+    for regex_comp, resultado in reglas:
+        if regex_comp.search(desc_clean):
             return resultado
     return None
 
 
-def extraer_potencia_numerica_opt(texto_prep, variable, maestro):
-    if not texto_prep:
+def extraer_potencia_numerica_opt(desc, var_name, maestro):
+    desc_clean = limpiar_texto(desc)
+    if not desc_clean:
         return None
-
-    patrones_var = maestro.dict_potencia.get(variable, [])
-    for regex_compilado, multiplicador in patrones_var:
-        match = regex_compilado.search(texto_prep)
-        if match:
+    patrones = maestro.dict_potencia.get(var_name, [])
+    for regex_comp, mult in patrones:
+        m = regex_comp.search(desc_clean)
+        if m:
+            val_str = m.group(1).replace(',', '.')
             try:
-                valor_str = match.group(1).replace(',', '.')
-                return round(float(valor_str) * multiplicador, 2)
-            except (ValueError, IndexError):
-                continue
-
-    if variable == 'Potencia_kVA':
-        match_va = REGEX_RESPALDO_VA.search(texto_prep)
-        if match_va:
-            try:
-                val = float(match_va.group(1).replace(',', '.'))
-                unidad = match_va.group(2).upper()
-                if unidad == 'VA':
-                    return round(val / 1000.0, 2)
-                return round(val, 2)
+                val = float(val_str)
+                return round(val * mult, 2)
             except ValueError:
-                pass
-
+                continue
     return None
 
 
-def buscar_en_maestro_opt(texto_prep, lista_marcas):
-    if not texto_prep:
-        return None
-    for patron, marca_estandar in lista_marcas:
-        if patron in texto_prep:
-            return marca_estandar
-    return None
+def procesar_dataframe_dinamico(df_raw, ruta_maestro):
+    maestro = CargarMaestro(ruta_maestro)
+    
+    # Detección dinámica de las columnas de descripción
+    cols_desc = identificar_columnas_descripcion(df_raw.columns)
+    
+    resultados = []
+    for _, row in df_raw.iterrows():
+        # Combinar dinámicamente todo el texto descriptivo disponible en la fila
+        textos_desc = [str(row[c]) for c in cols_desc if pd.notna(row[c])]
+        desc_completa = " ".join(textos_desc)
 
+        # 1. Extracción de marca
+        marca, fuente = extraer_marca(desc_completa, maestro)
 
-def buscar_marca_regex_opt(texto_prep, patrones_regex, stopwords):
-    if not texto_prep:
-        return None
-    for regex_compilado in patrones_regex:
-        match = regex_compilado.search(texto_prep)
-        if match:
-            candidato = match.group(1).strip()
-            if candidato not in stopwords and len(candidato) > 2:
-                return candidato
-    return None
+        # 2. Extracción de características categóricas
+        cat_vals = {
+            var: evaluar_caracteristica_categorica_opt(desc_completa, var, maestro)
+            for var in maestro.variables_categoricas
+        }
 
+        # 3. Extracción de métricas numéricas
+        num_vals = {
+            var: extraer_potencia_numerica_opt(desc_completa, var, maestro)
+            for var in maestro.variables_potencia
+        }
 
-def procesar_dict_fila(row_dict, maestro: CargarMaestro):
-    desc1_raw = row_dict.get('Descripcion1', row_dict.get(COL_DESCRIPCION, ''))
-    p1 = parsear_descripcion1(desc1_raw)
-    desc1_clean = limpiar_texto(desc1_raw).replace(',', '.')
+        var_principal = maestro.variable_producto_principal
+        valor_principal = maestro.valor_producto_principal
 
-    marca_p1 = None
-    fuente_marca = None
-    seg2_marca = p1["marca_limpia"]
-
-    if seg2_marca:
-        if seg2_marca in VALORES_MARCA_NULA:
-            marca_p1 = seg2_marca
-            fuente_marca = "P1: Declarado Sin Marca / Nula"
+        val_principal_extracted = cat_vals.get(var_principal)
+        
+        if valor_principal:
+            es_principal = (val_principal_extracted == valor_principal)
         else:
-            m_match = buscar_en_maestro_opt(seg2_marca, maestro.lista_marcas)
-            if m_match:
-                marca_p1 = m_match
-                fuente_marca = "P1: Descripcion1 (Estandarizado)"
-            else:
-                marca_p1 = p1["marca"].strip().upper()
-                fuente_marca = "P1: Descripcion1 (Marca Directa)"
+            es_principal = bool(val_principal_extracted)
 
-    var_principal = maestro.variable_producto_principal
-    valor_principal = maestro.valor_producto_principal
+        marca_final = marca or maestro.dict_defaults.get(es_principal, "Marca Generica")
+        fuente_marca = fuente if marca else "Default"
 
-    tipo_prod_p1 = evaluar_caracteristica_categorica_opt(p1["producto_limpio"], var_principal, maestro)
-    if not tipo_prod_p1:
-        tipo_prod_p1 = evaluar_caracteristica_categorica_opt(desc1_clean, var_principal, maestro)
+        # Regla especial de tecnología UPS
+        if "Tipo_Tecnologia" in cat_vals and "Salida_Fases" in cat_vals:
+            if cat_vals["Tipo_Tecnologia"] == "Interactivo" and cat_vals["Salida_Fases"] == "Trifasico":
+                cat_vals["Tipo_Tecnologia"] = "Online"
 
-    fases_p1 = evaluar_caracteristica_categorica_opt(desc1_clean, 'Salida_Fases', maestro)
-    montaje_p1 = evaluar_caracteristica_categorica_opt(desc1_clean, 'Formato_Montaje', maestro)
-    tecno_p1 = evaluar_caracteristica_categorica_opt(desc1_clean, 'Tipo_Tecnologia', maestro)
-    pot_kva_p1 = extraer_potencia_numerica_opt(desc1_clean, 'Potencia_kVA', maestro)
-    pot_w_p1 = extraer_potencia_numerica_opt(desc1_clean, 'Potencia_Watts', maestro)
+        # Construcción del diccionario de resultados
+        res = {
+            "Producto_Declarado": val_principal_extracted,
+            "Marca_Declarada": marca,
+            var_principal: val_principal_extracted,
+            "Es_Producto_Principal": es_principal,
+            "Marca_Extraida": marca_final,
+            "Origen_Marca": fuente_marca,
+        }
 
-    descs_secundarias_raw = " ".join([
-        str(row_dict.get(f'Descripcion{i}', '') or '') for i in range(2, 6)
-    ])
-    descs_secundarias_clean = limpiar_texto(descs_secundarias_raw).replace(',', '.')
+        for var in maestro.variables_categoricas:
+            if var != var_principal:
+                res[var] = cat_vals.get(var)
 
-    embarcador_raw = str(row_dict.get('Naviera', row_dict.get('Embarcador / Exportador', '')) or '')
-    embarcador_clean = limpiar_texto(embarcador_raw)
+        for var in maestro.variables_potencia:
+            res[var] = num_vals.get(var)
 
-    texto_completo_clean = f"{desc1_clean} {descs_secundarias_clean} {embarcador_clean}".strip()
+        resultados.append(res)
 
-    tipo_prod_final = (
-        tipo_prod_p1
-        or evaluar_caracteristica_categorica_opt(descs_secundarias_clean, var_principal, maestro)
-        or "Otros Equipos / Accesorios"
-    )
-    es_principal_final = (tipo_prod_final == valor_principal)
-
-    marca_final = marca_p1
-    if not marca_final:
-        marca_emb = buscar_en_maestro_opt(embarcador_clean, maestro.lista_marcas)
-        if marca_emb:
-            marca_final = marca_emb
-            fuente_marca = "P2: Embarcador / Naviera"
-        else:
-            marca_sec = buscar_en_maestro_opt(descs_secundarias_clean, maestro.lista_marcas)
-            if marca_sec:
-                marca_final = marca_sec
-                fuente_marca = "P2: Maestro en Descripciones 2-5"
-            else:
-                marca_regex = buscar_marca_regex_opt(texto_completo_clean, maestro.patrones_regex, maestro.stopwords)
-                if marca_regex:
-                    marca_final = f"{marca_regex.upper()} (RegEx)"
-                    fuente_marca = "P2: RegEx en Texto Completo"
-                else:
-                    marca_final = maestro.dict_defaults.get(es_principal_final, "Marca Generica")
-                    fuente_marca = "P2: Marca por Defecto"
-
-    fases_final = fases_p1 or evaluar_caracteristica_categorica_opt(descs_secundarias_clean, 'Salida_Fases', maestro)
-    montaje_final = montaje_p1 or evaluar_caracteristica_categorica_opt(descs_secundarias_clean, 'Formato_Montaje', maestro)
-    tecno_detectada = tecno_p1 or evaluar_caracteristica_categorica_opt(descs_secundarias_clean, 'Tipo_Tecnologia', maestro)
-
-    TECNO_ONLINE = "On-Line Doble Conversión"
-    TECNO_INTERACTIVO = "Interactivo (Line-Interactive)"
-
-    es_online = bool(tecno_detectada and any(kw in str(tecno_detectada).upper() for kw in ["ONLINE", "ON-LINE", "DOBLE CONVERSION", "DOBLE CONVERSIÓN"]))
-
-    if fases_final == 'Trifásico':
-        tecno_final = TECNO_ONLINE
-    elif fases_final == 'Monofásico':
-        tecno_final = TECNO_ONLINE if es_online else TECNO_INTERACTIVO
-    else:
-        tecno_final = TECNO_ONLINE if es_online else tecno_detectada
-
-    pot_kva_final = pot_kva_p1 or extraer_potencia_numerica_opt(descs_secundarias_clean, 'Potencia_kVA', maestro)
-    pot_w_final = pot_w_p1 or extraer_potencia_numerica_opt(descs_secundarias_clean, 'Potencia_Watts', maestro)
-
-    return {
-        "Producto_Declarado": p1["producto"],
-        "Marca_Declarada": p1["marca"],
-        "Modelo_Declarado": p1["modelo"],
-        var_principal: tipo_prod_final,
-        "Es_Producto_Principal": es_principal_final,
-        "Marca_Extraida": marca_final,
-        "Origen_Marca": fuente_marca,
-        "Salida_Fases": fases_final,
-        "Formato_Montaje": montaje_final,
-        "Tipo_Tecnologia": tecno_final,
-        "Potencia_kVA": pot_kva_final,
-        "Potencia_Watts": pot_w_final
-    }
+    df_res = pd.DataFrame(resultados)
+    df_final = pd.concat([df_raw.reset_index(drop=True), df_res.reset_index(drop=True)], axis=1)
+    return df_final
 
 
-def procesar_dataframe_dinamico(df_raw, ruta_maestro=PATH_MAESTRO):
-    df = df_raw.copy()
-
-    maestro = CargarMaestro(ruta_excel=ruta_maestro)
-
-    registros = df.to_dict('records')
-    resultados = [procesar_dict_fila(row, maestro) for row in registros]
-
-    df_res = pd.DataFrame(resultados, index=df.index)
-    for col in df_res.columns:
-        df[col] = df_res[col]
-
-    return df
+def sanitizar_dataframe_para_excel(df):
+    """Limpia caracteres de control XML e invisibles que corrompen archivos Excel en Linux/Cloud."""
+    df_clean = df.copy()
+    for col in df_clean.columns:
+        if df_clean[col].dtype == 'object':
+            df_clean[col] = (
+                df_clean[col]
+                .astype(str)
+                .str.replace(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]', '', regex=True)
+                .str.replace(r'_x[0-9a-fA-F]{4}_', '', regex=True)
+            )
+            df_clean[col] = df_clean[col].replace('nan', '')
+    return df_clean
