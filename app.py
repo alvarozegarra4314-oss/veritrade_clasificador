@@ -15,7 +15,6 @@ from extractor_maestro import procesar_dataframe_dinamico, CargarMaestro
 
 import re
 
-# Regex para caracteres de control no imprimibles en XML/Excel
 ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
 
 def limpiar_para_excel(df):
@@ -23,14 +22,15 @@ def limpiar_para_excel(df):
 
     # 1. Desinfectar nombres de columnas
     df_limpio.columns = [
-        ILLEGAL_CHARS_RE.sub('', str(col)).replace('_x0000_', '').strip()
+        ILLEGAL_CHARS_RE.sub('', str(col)).replace('_x0000_', '').replace('_x000D_', '').strip()
         for col in df_limpio.columns
     ]
 
     # 2. Quitar zonas horarias en fechas
-    for col in df_limpio.select_dtypes(include=['datetime', 'datetimetz']).columns:
-        if hasattr(df_limpio[col].dt, 'tz') and df_limpio[col].dt.tz is not None:
-            df_limpio[col] = df_limpio[col].dt.tz_localize(None)
+    for col in df_limpio.columns:
+        if pd.api.types.is_datetime64_any_dtype(df_limpio[col]):
+            if hasattr(df_limpio[col].dt, 'tz') and df_limpio[col].dt.tz is not None:
+                df_limpio[col] = df_limpio[col].dt.tz_localize(None)
 
     # 3. Limpiar celdas de texto
     for col in df_limpio.columns:
@@ -45,6 +45,7 @@ def limpiar_para_excel(df):
                 )
             )
     return df_limpio
+
 
 st.set_page_config(page_title="Clasificador de Importaciones — Veritrade", page_icon="🗂️", layout="wide")
 
@@ -85,13 +86,13 @@ if archivo_maestro is not None:
 procesar = st.button("▶️ Procesar", type="primary", disabled=not (archivo_raw and archivo_maestro))
 
 
-# Funciones optimizadas con Caché
 def procesar_datos_optimizados(raw_file, maestro_file, sheet):
     raw_file.seek(0)
     maestro_file.seek(0)
     df_raw = pd.read_excel(raw_file, sheet_name=sheet, engine="calamine")
     df_resultado = procesar_dataframe_dinamico(df_raw, ruta_maestro=maestro_file)
     return df_resultado
+
 
 if procesar:
     linea = "Producto"
@@ -106,14 +107,12 @@ if procesar:
 
         st.success(f"✅ Proceso completado: {len(df_resultado)} filas clasificadas ({linea}).")
 
-        # Generación segura del archivo Excel en memoria
         buffer = BytesIO()
         df_para_excel = limpiar_para_excel(df_resultado)
         
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             df_para_excel.to_excel(writer, index=False)
         
-        # Extracción exacta de los bytes del buffer
         excel_data = buffer.getvalue()
 
         st.download_button(

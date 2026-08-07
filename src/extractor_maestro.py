@@ -1,6 +1,7 @@
 import re
 import unicodedata
 import pandas as pd
+from pathlib import Path
 from config import (
     PATH_MAESTRO,
     SHEET_CONFIG_LINEA,
@@ -15,15 +16,7 @@ from config import (
 
 VALORES_MARCA_NULA = {'S/M', 'SIN MARCA', 'NO INDICA', 'N/A', 'NONE', 'S/N', '_X0000_'}
 
-# ==========================================
-# FUNCIONES AUXILIARES Y PARSERS
-# ==========================================
-
 def limpiar_texto(texto):
-    """
-    Normaliza el texto eliminando tildes, convirtiéndolo a mayúsculas
-    y limpiando espacios sobrantes.
-    """
     if not texto or pd.isna(texto):
         return ""
     texto_str = str(texto)
@@ -44,9 +37,6 @@ def construir_patron_desde_palabras(lista_palabras):
 
 
 def parsear_descripcion1(texto_raw):
-    """
-    Descompone Descripcion1 por comas según la convención de la DUA/DAM.
-    """
     if not texto_raw or pd.isna(texto_raw):
         return {"producto": "", "marca": "", "modelo": "", "producto_limpio": "", "marca_limpia": ""}
 
@@ -64,31 +54,23 @@ def parsear_descripcion1(texto_raw):
     }
 
 
-# ==========================================
-# CARGADOR CENTRALIZADO Y PRE-COMPILADO
-# ==========================================
-
 class CargarMaestro:
-    """
-    Carga el Excel maestro de una línea de producto (UPS, Tableros, etc.)
-    y pre-compila todas las estructuras de datos en listas y diccionarios
-    nativos de Python con RegEx pre-compilados para máxima velocidad.
-    El formato de hojas es el mismo para cualquier línea -- lo que cambia
-    entre líneas es el contenido, no la estructura.
-    """
     def __init__(self, ruta_excel=PATH_MAESTRO):
         self.ruta_excel = ruta_excel
         self.config_linea = {}
-        self.lista_marcas = []           # List[tuple(patron_limpio, marca_estandar)]
-        self.stopwords = set()          # Set[str]
-        self.patrones_regex = []        # List[re.Pattern]
-        self.dict_defaults = {}         # Dict[bool, str]
-        self.dict_caracteristicas = {}  # Dict[variable, List[tuple(compiled_regex, valor_resultado)]]
-        self.dict_potencia = {}         # Dict[variable, List[tuple(compiled_regex, multiplicador)]]
+        self.lista_marcas = []
+        self.stopwords = set()
+        self.patrones_regex = []
+        self.dict_defaults = {}
+        self.dict_caracteristicas = {}
+        self.dict_potencia = {}
 
         self._cargar_y_precompilar()
 
-def _cargar_y_precompilar(self):
+    def _cargar_y_precompilar(self):
+        if hasattr(self.ruta_excel, 'seek'):
+            self.ruta_excel.seek(0)
+
         engine = None
         try:
             import python_calamine
@@ -96,7 +78,6 @@ def _cargar_y_precompilar(self):
         except ImportError:
             engine = "openpyxl"
 
-        # pd.ExcelFile permite leer múltiples hojas sin agotar el archivo en memoria
         with pd.ExcelFile(self.ruta_excel, engine=engine) as xls:
             # 0. Configuración de la línea
             try:
@@ -187,7 +168,6 @@ def _cargar_y_precompilar(self):
                             continue
                     self.dict_potencia[variable] = patrones_var
 
-
     @property
     def variable_producto_principal(self) -> str:
         return self.config_linea.get("VARIABLE_PRODUCTO_PRINCIPAL", "Tipo_Producto_Detallado")
@@ -197,34 +177,19 @@ def _cargar_y_precompilar(self):
         return self.config_linea.get("VALOR_PRODUCTO_PRINCIPAL", "UPS Sistema Completo")
 
 
-# Alias por compatibilidad con código/scripts viejos que todavía
-# importen el nombre anterior de la clase.
 CargarMaestroUPS = CargarMaestro
 
-
-# RegEx genérico pre-compilado para respaldo de potencia
 REGEX_RESPALDO_VA = re.compile(r'\b(\d+[\.,]?\d*)\s*(VA|KVA|KW)\b', re.IGNORECASE)
 
-
-# ==========================================
-# FUNCIONES DE EVALUACIÓN OPTIMIZADAS
-# ==========================================
 
 def evaluar_caracteristica_categorica_opt(texto_prep, variable, maestro):
     if not texto_prep:
         return None
 
     reglas_var = maestro.dict_caracteristicas.get(variable, [])
-
-    # Búsqueda por palabras clave pre-compiladas
     for regex_compilado, resultado in reglas_var:
         if regex_compilado.search(texto_prep):
             return resultado
-
-    # Respaldo por Potencia (Específica para Salida_Fases)
-    if variable == 'Salida_Fases':
-        pass  # sin cambios: el respaldo real vive en extraer_potencia_numerica_opt / regla de negocio
-
     return None
 
 
@@ -242,7 +207,6 @@ def extraer_potencia_numerica_opt(texto_prep, variable, maestro):
             except (ValueError, IndexError):
                 continue
 
-    # Respaldo nativo (VA, KVA, KW)
     if variable == 'Potencia_kVA':
         match_va = REGEX_RESPALDO_VA.search(texto_prep)
         if match_va:
@@ -279,19 +243,11 @@ def buscar_marca_regex_opt(texto_prep, patrones_regex, stopwords):
     return None
 
 
-# ==========================================
-# PROCESAMIENTO POR FILA OPTIMIZADO
-# ==========================================
-
 def procesar_dict_fila(row_dict, maestro: CargarMaestro):
     desc1_raw = row_dict.get('Descripcion1', row_dict.get(COL_DESCRIPCION, ''))
     p1 = parsear_descripcion1(desc1_raw)
-
     desc1_clean = limpiar_texto(desc1_raw).replace(',', '.')
 
-    # ------------------------------------------------------------------
-    # PASO 1 (PRIORIDAD 1): Análisis sobre Descripcion1
-    # ------------------------------------------------------------------
     marca_p1 = None
     fuente_marca = None
     seg2_marca = p1["marca_limpia"]
@@ -309,10 +265,6 @@ def procesar_dict_fila(row_dict, maestro: CargarMaestro):
                 marca_p1 = p1["marca"].strip().upper()
                 fuente_marca = "P1: Descripcion1 (Marca Directa)"
 
-    # Características Paso 1. La variable que define "producto principal"
-    # (VARIABLE_PRODUCTO_PRINCIPAL, por defecto Tipo_Producto_Detallado)
-    # se lee del maestro, no está escrita a mano -- así sirve para
-    # cualquier línea de producto, no solo UPS.
     var_principal = maestro.variable_producto_principal
     valor_principal = maestro.valor_producto_principal
 
@@ -326,9 +278,6 @@ def procesar_dict_fila(row_dict, maestro: CargarMaestro):
     pot_kva_p1 = extraer_potencia_numerica_opt(desc1_clean, 'Potencia_kVA', maestro)
     pot_w_p1 = extraer_potencia_numerica_opt(desc1_clean, 'Potencia_Watts', maestro)
 
-    # ------------------------------------------------------------------
-    # PASO 2 (FALLBACK): Solo si Descripcion1 NO traía campo de marca
-    # ------------------------------------------------------------------
     descs_secundarias_raw = " ".join([
         str(row_dict.get(f'Descripcion{i}', '') or '') for i in range(2, 6)
     ])
@@ -370,9 +319,6 @@ def procesar_dict_fila(row_dict, maestro: CargarMaestro):
     montaje_final = montaje_p1 or evaluar_caracteristica_categorica_opt(descs_secundarias_clean, 'Formato_Montaje', maestro)
     tecno_detectada = tecno_p1 or evaluar_caracteristica_categorica_opt(descs_secundarias_clean, 'Tipo_Tecnologia', maestro)
 
-    # ------------------------------------------------------------------
-    # REGLA DE NEGOCIO: TECNOLOGÍA SEGÚN FASES (Categorías del Maestro)
-    # ------------------------------------------------------------------
     TECNO_ONLINE = "On-Line Doble Conversión"
     TECNO_INTERACTIVO = "Interactivo (Line-Interactive)"
 
@@ -383,12 +329,7 @@ def procesar_dict_fila(row_dict, maestro: CargarMaestro):
     elif fases_final == 'Monofásico':
         tecno_final = TECNO_ONLINE if es_online else TECNO_INTERACTIVO
     else:
-        if es_online:
-            tecno_final = TECNO_ONLINE
-        elif tecno_detectada:
-            tecno_final = tecno_detectada
-        else:
-            tecno_final = None
+        tecno_final = TECNO_ONLINE if es_online else tecno_detectada
 
     pot_kva_final = pot_kva_p1 or extraer_potencia_numerica_opt(descs_secundarias_clean, 'Potencia_kVA', maestro)
     pot_w_final = pot_w_p1 or extraer_potencia_numerica_opt(descs_secundarias_clean, 'Potencia_Watts', maestro)
@@ -408,10 +349,6 @@ def procesar_dict_fila(row_dict, maestro: CargarMaestro):
         "Potencia_Watts": pot_w_final
     }
 
-
-# ==========================================
-# PROCESO PRINCIPAL
-# ==========================================
 
 def procesar_dataframe_dinamico(df_raw, ruta_maestro=PATH_MAESTRO):
     df = df_raw.copy()
