@@ -13,6 +13,18 @@ import streamlit as st
 from config import RAW_SHEET_NAME, SHEET_CONFIG_LINEA
 from extractor_maestro import procesar_dataframe_dinamico, CargarMaestro
 
+import re
+
+ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
+
+def limpiar_para_excel(df):
+    df_limpio = df.copy()
+    for col in df_limpio.select_dtypes(include="object").columns:
+        df_limpio[col] = df_limpio[col].apply(
+            lambda x: ILLEGAL_CHARS_RE.sub('', str(x)) if pd.notna(x) else x
+        )
+    return df_limpio
+
 st.set_page_config(page_title="Clasificador de Importaciones — Veritrade", page_icon="🗂️", layout="wide")
 
 st.title("🗂️ Clasificador de Importaciones — Veritrade")
@@ -83,8 +95,9 @@ if procesar:
         st.success(f"✅ Proceso completado: {len(df_resultado)} filas clasificadas ({linea}).")
 
         buffer = BytesIO()
+        df_para_excel = limpiar_para_excel(df_resultado)
         with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-            df_resultado.to_excel(writer, index=False)
+            df_para_excel.to_excel(writer, index=False)
         buffer.seek(0)
 
         st.download_button(
