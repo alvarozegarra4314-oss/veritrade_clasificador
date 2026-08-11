@@ -49,15 +49,35 @@ def construir_patron_desde_palabras(lista_palabras: list) -> str:
     return '|'.join(partes)
 
 
-def identificar_columnas_descripcion(df_columns) -> list:
-    """Detecta de forma dinámica las columnas que contienen descripciones comerciales."""
-    cols_desc = []
-    for col in df_columns:
-        c_upper = str(col).strip().upper()
-        if any(k in c_upper for k in ['DESCRIPCION', 'DESC_', 'DESC ', 'DETALLE', 'MERCADERIA', 'COMMODITY']):
-            cols_desc.append(col)
+def identificar_columnas_descripcion(columnas) -> list:
+    """
+    Identifica dinámicamente las columnas con descripciones comerciales de producto
+    y excluye las columnas de descripción arancelaria o de aduanas.
+    """
+    # Palabras clave que identifican descripciones de producto
+    PALABRAS_INCLUSION = [
+        'DESCRIPCION', 'DESC_', 'DESC ', 'DESCP', 
+        'DETALLE', 'MERCADERIA', 'COMMODITY'
+    ]
     
-    if not cols_desc:
-        cols_desc = list(df_columns)
-        
-    return cols_desc
+    # Palabras clave que DESCARTAN la columna (descripciones administrativas/arancelarias)
+    PALABRAS_EXCLUSION = [
+        'PARTIDA', 'ARANCEL', 'NANDINA', 'SUBPARTIDA', 
+        'CAPITULO', 'POSICION', 'DECLARACION'
+    ]
+
+    cols_identificadas = []
+
+    for col in columnas:
+        col_str = str(col).strip()
+        col_upper = col_str.upper()
+
+        # 1. Si contiene alguna palabra de exclusión (ej. "PARTIDA"), se ignora de inmediato
+        if any(excl in col_upper for excl in PALABRAS_EXCLUSION):
+            continue
+
+        # 2. Si contiene alguna palabra de inclusión, se agrega a la lista de descripciones
+        if any(incl in col_upper for incl in PALABRAS_INCLUSION):
+            cols_identificadas.append(col_str)
+
+    return cols_identificadas
