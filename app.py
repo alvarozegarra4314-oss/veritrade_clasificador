@@ -9,11 +9,10 @@ SRC_DIR = BASE_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from extractor_maestro import (
-    procesar_dataframe_dinamico,
-    CargarMaestro,
-    sanitizar_dataframe_para_excel,
-)
+
+from src.pipeline import procesar_dataframe_dinamico
+from src.maestro.loader import CargarMaestro
+from src.excel_io import sanitizar_dataframe_para_excel
 
 st.set_page_config(page_title="Clasificador de Importaciones — Veritrade", page_icon="🗂️", layout="wide")
 
@@ -31,18 +30,19 @@ with col2:
 
 hoja_raw = st.text_input("Nombre de la hoja del archivo crudo", value="Datos")
 
-
-def leer_info_maestro(archivo):
-    archivo.seek(0)
-    maestro_info = CargarMaestro(ruta_excel=archivo)
-    archivo.seek(0)
-    return maestro_info
+# Fix 3: Caché en Streamlit para lecturas y cómputo recurrente
+@st.cache_data(show_spinner=False)
+def ejecutar_pipeline_cached(bytes_raw: bytes, bytes_maestro: bytes, hoja: str):
+    df_raw = pd.read_excel(BytesIO(bytes_raw), sheet_name=hoja, engine="openpyxl")
+    maestro = CargarMaestro(BytesIO(bytes_maestro))
+    return procesar_dataframe_dinamico(df_raw, maestro)
 
 
 maestro_info = None
 if archivo_maestro is not None:
     try:
-        maestro_info = leer_info_maestro(archivo_maestro)
+        archivo_maestro.seek(0)
+        maestro_info = CargarMaestro(ruta_excel=archivo_maestro)
         linea_detectada = maestro_info.config_linea.get("LINEA_PRODUCTO", "Producto")
         vars_cat = ", ".join(maestro_info.variables_categoricas)
         vars_num = ", ".join(maestro_info.variables_potencia)
@@ -60,11 +60,13 @@ if procesar:
             archivo_raw.seek(0)
             archivo_maestro.seek(0)
 
-            df_raw = pd.read_excel(archivo_raw, sheet_name=hoja_raw, engine="openpyxl")
-            df_resultado = procesar_dataframe_dinamico(df_raw, ruta_maestro=archivo_maestro)
+            df_resultado = ejecutar_pipeline_cached(
+                archivo_raw.getvalue(),
+                archivo_maestro.getvalue(),
+                hoja_raw
+            )
 
         st.success(f"✅ Proceso completado: {len(df_resultado)} filas clasificadas ({linea}).")
-
         # Sanitizar para evitar corrupción XML en Streamlit Cloud / Linux
         df_export = sanitizar_dataframe_para_excel(df_resultado)
 
