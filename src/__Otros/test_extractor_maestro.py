@@ -13,7 +13,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 import config
-from extractor_maestro import (
+from __Otros.extractor_maestro import (
     CargarMaestro,
     limpiar_texto,
     evaluar_caracteristica_categorica_opt,

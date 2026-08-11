@@ -9,10 +9,6 @@ from src.maestro.reglas import (
 
 
 def procesar_dataframe_dinamico(df_raw: pd.DataFrame, ruta_maestro) -> pd.DataFrame:
-    """
-    Orquesta el procesamiento del dataframe usando itertuples y
-    limpiando la descripción una sola vez por fila.
-    """
     maestro = ruta_maestro if isinstance(ruta_maestro, CargarMaestro) else CargarMaestro(ruta_maestro)
     
     cols_desc = identificar_columnas_descripcion(df_raw.columns)
@@ -25,16 +21,18 @@ def procesar_dataframe_dinamico(df_raw: pd.DataFrame, ruta_maestro) -> pd.DataFr
 
     resultados = []
 
-    # Fix 2: itertuples (overhead ~27x menor que iterrows)
     for row in df_raw.itertuples(index=False):
+        # 1. Unir todas las columnas de descripción para características y marcas por diccionario
         textos_desc = [str(row[i]) for i in cols_indices if pd.notna(row[i])]
         desc_completa = " ".join(textos_desc)
-
-        # Fix 1: Limpieza única por fila
         desc_clean = limpiar_texto(desc_completa)
 
-        # Extracción pasando desc_clean pre-calculado
-        marca, fuente = extraer_marca(desc_clean, maestro)
+        # 2. Aísla únicamente la PRIMERA descripción (Descripcion 1 / Descripcion Comercial)
+        desc_1_raw = str(row[cols_indices[0]]) if cols_indices and pd.notna(row[cols_indices[0]]) else ""
+        desc_1_clean = limpiar_texto(desc_1_raw)
+
+        # 3. Extraer marca pasando desc_clean (para dict/regex) y desc_1_clean (para posición 2 por coma)
+        marca, fuente = extraer_marca(desc_clean, maestro, desc_1_clean=desc_1_clean)
 
         cat_vals = {
             var: evaluar_caracteristica_categorica(desc_clean, var, maestro)
@@ -56,7 +54,6 @@ def procesar_dataframe_dinamico(df_raw: pd.DataFrame, ruta_maestro) -> pd.DataFr
         marca_final = marca or maestro.dict_defaults.get(es_principal, "Marca Generica")
         fuente_marca = fuente if marca else "Default"
 
-        # Regla de negocio especial para tecnología UPS
         if cat_vals.get("Tipo_Tecnologia") == "Interactivo" and cat_vals.get("Salida_Fases") == "Trifasico":
             cat_vals["Tipo_Tecnologia"] = "Online"
 
