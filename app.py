@@ -144,7 +144,7 @@ with st.container(border=True):
         usar_ia = False
         api_key = ""
     else:
-        usar_ia = st.toggle("Activar motor de rescate (Gemini 1.5 Flash)", value=False)
+        usar_ia = st.toggle("Activar motor de rescate (Gemini 3.1 Flash Lite)", value=False)
         
         api_key = None
         if usar_ia:
