@@ -53,14 +53,6 @@ class CacheIA:
 
     @staticmethod
     def _clave(desc_clean: str, modelo: str) -> str:
-        # `modelo` puede incluir un sufijo de versión de prompt (ej.
-        # "gemini-3.1-flash-lite::promptv2"), no solo el nombre del modelo
-        # de Gemini. Esto es intencional: así, cuando se cambia el
-        # PROMPT_SISTEMA (p.ej. para priorizar características técnicas
-        # sobre la marca), las descripciones YA cacheadas con el prompt
-        # viejo se tratan como "no vistas" y se vuelven a mandar a la IA,
-        # en vez de servir para siempre resultados obtenidos con lógica
-        # de extracción desactualizada.
         base = f"{modelo}::{desc_clean}"
         return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
