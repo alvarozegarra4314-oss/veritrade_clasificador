@@ -1,14 +1,17 @@
 import sys
+import warnings
 from pathlib import Path
 from io import BytesIO
 import pandas as pd
 import streamlit as st
 
+# Ignorar la advertencia de obsolescencia de la librería de Gemini para mantener limpia la consola
+warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
+
 BASE_DIR = Path(__file__).resolve().parent
 SRC_DIR = BASE_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
-
 
 from src.pipeline import procesar_dataframe_dinamico
 from src.maestro.loader import CargarMaestro
@@ -18,6 +21,26 @@ from src.maestro_optimizer import guardar_maestro_optimizado
 
 st.set_page_config(page_title="Clasificador de Importaciones — Veritrade", page_icon="🗂️", layout="wide")
 
+# =====================================================================
+# 0. INICIALIZACIÓN DE VARIABLES DE SESIÓN (SESSION STATE)
+# =====================================================================
+# Esto evita que los datos y botones de descarga desaparezcan al hacer clic
+if "df_resultado" not in st.session_state:
+    st.session_state.df_resultado = None
+if "df_export_data" not in st.session_state:
+    st.session_state.df_export_data = None
+if "maestro_opt_data" not in st.session_state:
+    st.session_state.maestro_opt_data = None
+if "resumen_opt" not in st.session_state:
+    st.session_state.resumen_opt = None
+if "linea_producto" not in st.session_state:
+    st.session_state.linea_producto = "Producto"
+if "proceso_completado" not in st.session_state:
+    st.session_state.proceso_completado = False
+
+# =====================================================================
+# 1. INTERFAZ PRINCIPAL Y CARGA DE ARCHIVOS
+# =====================================================================
 st.title("🗂️ Clasificador de Importaciones — Veritrade")
 st.caption(
     "Sube el archivo de datos crudos y el maestro de reglas de cualquier línea de producto "
@@ -51,9 +74,9 @@ if archivo_raw is not None:
                 f"Hojas disponibles en este archivo: {', '.join(f'`{h}`' for h in hojas_disponibles_raw)}"
             )
 
-# ----------------------------------------------------------------------
-# Bloque de configuración de Rescate por IA (opcional)
-# ----------------------------------------------------------------------
+# =====================================================================
+# 2. CONFIGURACIÓN DE IA
+# =====================================================================
 st.divider()
 st.subheader("🤖 Rescate por IA Generativa (opcional)")
 
@@ -77,14 +100,10 @@ api_key = None
 LIMITE_ADVERTENCIA_UNICAS = 2000
 
 def _obtener_api_key_de_secrets() -> str:
-    """Devuelve la API key desde .streamlit/secrets.toml si existe; si no, string vacío.
-    No usar hasattr(st, 'secrets') solo: el objeto siempre existe, pero accederlo
-    dispara la excepción si el archivo secrets.toml no está creado."""
     try:
         return st.secrets.get("GEMINI_API_KEY", "")
     except Exception:
         return ""
-
 
 if usar_ia:
     api_key = st.text_input(
@@ -105,16 +124,11 @@ if usar_ia:
         ),
     )
 
-# Fix: la caché de Streamlit debe considerar el toggle de IA como parte de la clave,
-# de lo contrario un cambio de "usar_ia" con los mismos archivos devolvería un
-# resultado cacheado incorrecto (con o sin columnas de IA según el primer run).
 @st.cache_data(show_spinner=False)
 def ejecutar_pipeline_reglas_cached(bytes_raw: bytes, bytes_maestro: bytes, hoja: str):
-    """Fase determinista (reglas), cacheable de forma segura: no depende de la IA."""
     df_raw = pd.read_excel(BytesIO(bytes_raw), sheet_name=hoja, engine="openpyxl")
     maestro = CargarMaestro(BytesIO(bytes_maestro))
     return df_raw, maestro
-
 
 maestro_info = None
 if archivo_maestro is not None:
@@ -136,6 +150,10 @@ if archivo_maestro is not None:
     except Exception as e:
         st.warning(f"No se pudo leer la configuración del maestro. Detalle: {e}")
 
+
+# =====================================================================
+# 3. LÓGICA DE PROCESAMIENTO
+# =====================================================================
 procesar = st.button(
     "▶️ Procesar",
     type="primary",
@@ -159,7 +177,6 @@ if procesar:
         rescatador = None
         if usar_ia and api_key:
             rescatador = RescatadorIA(api_key=api_key, maestro=maestro, rpm_limite=rpm_limite)
-
             progress_bar = st.progress(0.0, text="Preparando rescate por IA...")
 
             def _actualizar_progreso(fase, i, total):
@@ -183,12 +200,17 @@ if procesar:
             with st.spinner("Procesando clasificación dinámica..."):
                 df_resultado = procesar_dataframe_dinamico(df_raw, maestro)
 
-        st.success(f"✅ Proceso completado: {len(df_resultado)} filas clasificadas ({linea}).")
+        # ------------------------------------------------------------------
+        # GUARDAR RESULTADOS EN LA SESIÓN
+        # ------------------------------------------------------------------
+        st.session_state.df_resultado = df_resultado
+        st.session_state.linea_producto = linea
+        st.session_state.proceso_completado = True
 
-        # ------------------------------------------------------------------
-        # Panel de auditoría del rescate por IA
-        # ------------------------------------------------------------------
+        # Renderizar auditoría de IA de inmediato
         if rescatador is not None:
+            st.divider()
+            st.subheader("📊 Auditoría de Rescate IA")
             n_rescatados = int(df_resultado["Rescatado_Por_IA"].sum()) if "Rescatado_Por_IA" in df_resultado else 0
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Registros rescatados por IA", n_rescatados,
@@ -209,101 +231,92 @@ if procesar:
                         f"- Respuesta JSON inválida: **{rescatador.errores_formato}**\n"
                         f"- Otros (red/timeout): **{rescatador.errores_otros}**"
                     )
-                    if rescatador.ultimo_error_detalle:
-                        st.code(rescatador.ultimo_error_detalle)
 
-            if n_rescatados > 0:
-                with st.expander("🔍 Ver registros rescatados por IA"):
-                    st.dataframe(
-                        df_resultado[df_resultado["Rescatado_Por_IA"]],
-                        use_container_width=True,
-                    )
-
-            # --------------------------------------------------------------
-            # Maestro Optimizado: nuevas marcas/características que la IA
-            # aprendió en esta corrida, listas para retroalimentar el maestro.
-            # Nunca se sobreescribe el maestro original: se genera un archivo
-            # nuevo que el usuario decide si reemplaza o no.
-            # --------------------------------------------------------------
+            # --- Maestro Optimizado en Memoria ---
             propuestas = getattr(rescatador, "propuestas_aprendizaje", None)
             hay_aprendizaje = propuestas and (
-                propuestas.get("nuevas_marcas")
-                or propuestas.get("nuevas_caracteristicas")
-                or propuestas.get("revisar_manual")
+                propuestas.get("nuevas_marcas") or propuestas.get("nuevas_caracteristicas") or propuestas.get("revisar_manual")
             )
 
             if hay_aprendizaje:
-                st.subheader("🧠 Maestro Optimizado")
-                n_marcas = len(propuestas.get("nuevas_marcas", []))
-                n_caract = len(propuestas.get("nuevas_caracteristicas", []))
-                n_revisar = len(propuestas.get("revisar_manual", []))
-
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Marcas nuevas aprendidas", n_marcas)
-                m2.metric("Características nuevas aprendidas", n_caract)
-                m3.metric("Pendientes de revisión manual", n_revisar)
-
-                st.caption(
-                    "Estas reglas se agregan con la PRIORIDAD MÁS BAJA del maestro: nunca "
-                    "compiten ni sobreescriben una regla humana existente, solo actúan cuando "
-                    "nada más resolvió el registro. El archivo original no se modifica — "
-                    "descarga este nuevo archivo y reemplázalo tú mismo si lo validas."
+                archivo_maestro.seek(0)
+                buffer_maestro_opt = BytesIO()
+                resumen_opt = guardar_maestro_optimizado(
+                    ruta_maestro_original=archivo_maestro,
+                    propuestas=propuestas,
+                    ruta_salida=buffer_maestro_opt,
                 )
+                st.session_state.maestro_opt_data = buffer_maestro_opt.getvalue()
+                st.session_state.resumen_opt = resumen_opt
+            else:
+                st.session_state.maestro_opt_data = None
+                st.session_state.resumen_opt = None
+        else:
+            st.session_state.maestro_opt_data = None
+            st.session_state.resumen_opt = None
 
-                if n_revisar > 0:
-                    with st.expander(f"⚠️ {n_revisar} casos que requieren revisión manual (no se auto-agregaron)"):
-                        st.dataframe(pd.DataFrame(propuestas["revisar_manual"]), use_container_width=True)
-
-                try:
-                    archivo_maestro.seek(0)
-                    buffer_maestro_opt = BytesIO()
-                    resumen_opt = guardar_maestro_optimizado(
-                        ruta_maestro_original=archivo_maestro,
-                        propuestas=propuestas,
-                        ruta_salida=buffer_maestro_opt,
-                    )
-                    buffer_maestro_opt.seek(0)
-
-                    st.download_button(
-                        label=f"⬇️ Descargar Maestro Optimizado ({linea}) (.xlsx)",
-                        data=buffer_maestro_opt.getvalue(),
-                        file_name=f"Maestro_Optimizado_{linea}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        help=(
-                            f"{resumen_opt['marcas_agregadas']} marca(s) y "
-                            f"{resumen_opt['caracteristicas_agregadas']} característica(s) nueva(s), "
-                            f"más la hoja 'Log_Aprendizaje_IA' con el detalle de todo lo aprendido."
-                        ),
-                    )
-                except Exception as e_opt:
-                    st.error(f"No se pudo generar el Maestro Optimizado: {e_opt}")
-
-        # Sanitizar para evitar corrupción XML en Streamlit Cloud / Linux
+        # --- DataFrame Exportable en Memoria ---
         df_export = sanitizar_dataframe_para_excel(df_resultado)
-
         output_buffer = BytesIO()
         with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
             df_export.to_excel(writer, index=False, sheet_name="Clasificacion")
-
-        output_buffer.seek(0)
-        excel_data = output_buffer.getvalue()
-
-        st.download_button(
-            label=f"⬇️ Descargar resultado ({linea}) (.xlsx)",
-            data=excel_data,
-            file_name=f"Resultado_Clasificacion_{linea}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-        st.dataframe(df_resultado.head(10), use_container_width=True)
+        st.session_state.df_export_data = output_buffer.getvalue()
 
     except Exception as e:
         st.error(f"❌ Ocurrió un error durante el procesamiento: {e}")
         st.exception(e)
-else:
+
+# Validaciones visuales antes de procesar
+elif not procesar:
     if usar_ia and not api_key:
         st.info("Ingresa tu API Key de Gemini para habilitar el botón de procesar.")
     elif archivo_raw and not hoja_raw_valida:
         st.info("Corrige el nombre de la hoja del archivo crudo para habilitar el botón de procesar.")
-    else:
+    elif not archivo_raw or not archivo_maestro:
         st.info("Sube ambos archivos para habilitar el botón de procesar.")
+
+
+# =====================================================================
+# 4. ÁREA DE RESULTADOS Y DESCARGAS (PERSISTENTE)
+# =====================================================================
+# Esta sección siempre se renderizará si hay datos guardados en session_state
+if st.session_state.proceso_completado and st.session_state.df_resultado is not None:
+    st.divider()
+    st.subheader("📥 Descargas y Resultados")
+    
+    col_d1, col_d2 = st.columns(2)
+    
+    # 4.1 Botón de Maestro Optimizado
+    if st.session_state.maestro_opt_data is not None:
+        with col_d1:
+            resumen = st.session_state.resumen_opt
+            texto_ayuda = ""
+            if resumen:
+                texto_ayuda = f"{resumen.get('marcas_agregadas', 0)} marca(s) y {resumen.get('caracteristicas_agregadas', 0)} característica(s) nueva(s)."
+            
+            st.download_button(
+                label=f"⬇️ Descargar Maestro Optimizado ({st.session_state.linea_producto})",
+                data=st.session_state.maestro_opt_data,
+                file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help=texto_ayuda,
+                key="btn_descarga_maestro"  # Key única para evitar conflicto
+            )
+    else:
+        with col_d1:
+            st.caption("No se generó Maestro Optimizado (no se activó IA o no hubo aprendizaje).")
+
+    # 4.2 Botón de Resultado de Clasificación
+    if st.session_state.df_export_data is not None:
+        with col_d2:
+            st.download_button(
+                label=f"⬇️ Descargar resultado ({st.session_state.linea_producto})",
+                data=st.session_state.df_export_data,
+                file_name=f"Resultado_Clasificacion_{st.session_state.linea_producto}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_descarga_resultado" # Key única para evitar conflicto
+            )
+
+    # 4.3 Previsualización de los datos
+    st.markdown("### Vista previa de los datos")
+    st.dataframe(st.session_state.df_resultado.head(15), use_container_width=True)
