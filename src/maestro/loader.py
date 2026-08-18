@@ -19,6 +19,8 @@ class CargarMaestro:
         self.dict_potencia = {}
         self.variables_categoricas = []
         self.variables_potencia = []
+        self.condicionales = []
+        self.condicionales_descartadas = []  # auditoría: reglas ignoradas por no aplicar a esta línea
 
         self._cargar_y_precompilar()
 
@@ -43,6 +45,7 @@ class CargarMaestro:
             s_carac = self._buscar_hoja(sheets, ["Reglas_Caracteristicas", "2_Caracteristicas", "Caracteristicas"])
             s_pot = self._buscar_hoja(sheets, ["Patrones_Potencia", "3_Tecnico_Potencia", "Tecnico_Potencia", "Potencia"])
             s_regex = self._buscar_hoja(sheets, ["Patrones_Regex", "4_Tecnico_RegexMarca", "RegexMarca", "Regex"])
+            s_condicionales = self._buscar_hoja(sheets, ["Condicionales", "5_Condicionales"])
 
             # 0. Config Linea
             if s_cfg:
@@ -155,6 +158,83 @@ class CargarMaestro:
                             except re.error:
                                 continue
                     self.dict_potencia[var] = patrones_var
+
+            # 7. Condicionales por rango (5_Condicionales) — reglas que
+            # clasifican una variable categórica según el valor de OTRA
+            # variable ya extraída (típicamente numérica, ej. rangos de
+            # kVA), no por palabras clave en el texto.
+            if s_condicionales:
+                df_cond = pd.read_excel(xls, sheet_name=s_condicionales)
+                df_cond.columns = [str(c).strip() for c in df_cond.columns]
+
+                columnas_requeridas = {
+                    "Regla_ID", "Variable_Resultado", "Valor_Resultado",
+                    "Variable_Condicion", "Operador",
+                }
+                if columnas_requeridas.issubset(set(df_cond.columns)):
+                    variables_conocidas = set(self.variables_categoricas) | set(self.variables_potencia)
+                    col_prio = "Prioridad" if "Prioridad" in df_cond.columns else None
+
+                    for regla_id, grupo in df_cond.groupby("Regla_ID"):
+                        primera = grupo.iloc[0]
+                        variable_resultado = str(primera["Variable_Resultado"]).strip()
+                        valor_resultado = str(primera["Valor_Resultado"]).strip()
+                        prioridad = parse_float(primera.get(col_prio, 1), default=1.0) if col_prio else 1.0
+
+                        # SEGURIDAD DE SCOPING: si la variable a clasificar no
+                        # pertenece a esta línea de producto, la regla completa
+                        # se descarta (nunca se aplica una condicional de otra
+                        # línea, ej. UPS, sobre un maestro de Interruptores).
+                        if variable_resultado not in variables_conocidas:
+                            self.condicionales_descartadas.append({
+                                "Regla_ID": regla_id,
+                                "Variable_Resultado": variable_resultado,
+                                "Motivo": "Variable_Resultado no existe en esta línea de producto",
+                            })
+                            continue
+
+                        condiciones = []
+                        regla_valida = True
+                        for _, fila in grupo.iterrows():
+                            var_condicion = str(fila["Variable_Condicion"]).strip()
+
+                            # Misma seguridad de scoping, ahora sobre cada
+                            # condición individual de la regla.
+                            if var_condicion not in variables_conocidas:
+                                self.condicionales_descartadas.append({
+                                    "Regla_ID": regla_id,
+                                    "Variable_Resultado": variable_resultado,
+                                    "Motivo": f"Variable_Condicion '{var_condicion}' no existe en esta línea de producto",
+                                })
+                                regla_valida = False
+                                break
+
+                            operador = str(fila["Operador"]).strip().upper()
+                            valor_1 = parse_float(fila.get("Valor_1"), default=None)
+                            valor_2 = parse_float(fila.get("Valor_2"), default=None)
+                            # Para operadores de igualdad/desigualdad el valor puede
+                            # ser texto (ej. Tipo_Tecnologia == Online), no numérico.
+                            if operador in ("==", "!="):
+                                valor_1 = str(fila.get("Valor_1")).strip() if pd.notna(fila.get("Valor_1")) else None
+
+                            condiciones.append({
+                                "variable": var_condicion,
+                                "operador": operador,
+                                "valor_1": valor_1,
+                                "valor_2": valor_2,
+                                "es_numerica": var_condicion in self.variables_potencia,
+                            })
+
+                        if regla_valida and condiciones:
+                            self.condicionales.append({
+                                "regla_id": regla_id,
+                                "variable_resultado": variable_resultado,
+                                "valor_resultado": valor_resultado,
+                                "prioridad": prioridad,
+                                "condiciones": condiciones,
+                            })
+
+                    self.condicionales.sort(key=lambda r: r["prioridad"])
 
     @property
     def variable_producto_principal(self) -> str:

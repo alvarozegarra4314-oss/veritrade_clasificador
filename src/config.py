@@ -52,6 +52,7 @@ SHEET_MARCAS_DEFAULT = "1c_Marca_Por_Defecto"
 SHEET_REGLAS_CARACTERISTICAS = "2_Caracteristicas"
 SHEET_PATRONES_POTENCIA = "3_Tecnico_Potencia_NOEDIT"
 SHEET_PATRONES_REGEX = "4_Tecnico_RegexMarca_NOEDIT"
+SHEET_CONDICIONALES = "5_Condicionales"
 
 COL_DESCRIPCION = "Descripcion Comercial"
 COL_PATRON = "Patrón detectado en texto"
