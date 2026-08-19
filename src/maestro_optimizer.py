@@ -40,6 +40,7 @@ from __future__ import annotations
 import re
 import os
 import tempfile
+from io import BytesIO
 from datetime import datetime
 from typing import Optional
 
@@ -368,8 +369,13 @@ def guardar_maestro_optimizado(ruta_maestro_original, propuestas: dict, ruta_sal
         else:
             hojas["Log_Aprendizaje_IA"] = df_log_nuevo
 
-    ruta_salida = os.fspath(ruta_salida)
-    carpeta_salida = os.path.dirname(os.path.abspath(ruta_salida))
+    es_buffer = isinstance(ruta_salida, BytesIO)
+    if es_buffer:
+        carpeta_salida = None
+    else:
+        ruta_salida = os.fspath(ruta_salida)
+        carpeta_salida = os.path.dirname(os.path.abspath(ruta_salida))
+
     fd_temporal, ruta_temporal = tempfile.mkstemp(suffix=".xlsx", dir=carpeta_salida)
     os.close(fd_temporal)
     try:
@@ -384,7 +390,14 @@ def guardar_maestro_optimizado(ruta_maestro_original, propuestas: dict, ruta_sal
         # La primera hoja es documentación, no datos tabulares. Se restaura
         # desde el original después de cerrar el writer para conservar su diseño.
         restaurar_hoja_instrucciones(ruta_temporal, ruta_maestro_original)
-        os.replace(ruta_temporal, ruta_salida)
+        if es_buffer:
+            with open(ruta_temporal, "rb") as archivo:
+                ruta_salida.seek(0)
+                ruta_salida.truncate(0)
+                ruta_salida.write(archivo.read())
+            ruta_salida.seek(0)
+        else:
+            os.replace(ruta_temporal, ruta_salida)
     finally:
         if os.path.exists(ruta_temporal):
             os.remove(ruta_temporal)
