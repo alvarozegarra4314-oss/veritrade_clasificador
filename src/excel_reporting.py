@@ -11,10 +11,8 @@ from pathlib import Path
 from typing import IO
 
 import pandas as pd
-from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.table import Table, TableStyleInfo
 
 COLOR_HEADER = "1F4E78"
 COLOR_SUBHEADER = "D9EAF7"
@@ -59,32 +57,6 @@ def _normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
     return resultado
 
 
-def _crear_tabla(ws, nombre: str, inicio: int, fin: int, columnas: int) -> None:
-    if fin < inicio or columnas < 1:
-        return
-    ref = f"A{inicio}:{get_column_letter(columnas)}{fin}"
-    tabla = Table(displayName=nombre[:255], ref=ref)
-    tabla.tableStyleInfo = TableStyleInfo(
-        name="TableStyleMedium2",
-        showFirstColumn=False,
-        showLastColumn=False,
-        showRowStripes=False,
-        showColumnStripes=False,
-    )
-    ws.add_table(tabla)
-
-
-def _formatear_rango(ws, fila_inicio: int, fila_fin: int, columnas: int, encabezado: bool = False) -> None:
-    for fila in range(fila_inicio, fila_fin + 1):
-        for columna in range(1, columnas + 1):
-            celda = ws.cell(fila, columna)
-            celda.border = BORDER
-            celda.alignment = Alignment(vertical="center", wrap_text=False)
-            if encabezado and fila == fila_inicio:
-                celda.fill = PatternFill("solid", fgColor=COLOR_HEADER)
-                celda.font = Font(bold=True, color=COLOR_TEXT)
-
-
 def _es_caracteristica(columna: str, marca_columna: str | None) -> bool:
     nombre = str(columna).upper()
     excluidas = {"DESCRIPCION", "PRODUCTO_TEXTO", "MODELO_SERIE", "ORIGEN", "RESCATADO", "ES_PRODUCTO"}
@@ -124,23 +96,8 @@ def _resumen_caracteristicas(df: pd.DataFrame, marca_columna: str | None, qty_co
     return pd.concat(filas, ignore_index=True).sort_values("Registros", ascending=False)
 
 
-def _escribir_seccion(ws, fila: int, titulo: str, subtitulo: str, datos: pd.DataFrame, nombre_tabla: str) -> int:
-    ws.cell(fila, 1, titulo).font = Font(bold=True, size=13, color=COLOR_HEADER)
-    ws.cell(fila + 1, 1, subtitulo).font = Font(italic=True, color="666666")
-    inicio = fila + 3
-    for columna, nombre in enumerate(datos.columns, start=1):
-        ws.cell(inicio, columna, nombre)
-    for indice, valores in enumerate(datos.itertuples(index=False, name=None), start=inicio + 1):
-        for columna, valor in enumerate(valores, start=1):
-            ws.cell(indice, columna, valor)
-    fin = inicio + len(datos)
-    _formatear_rango(ws, inicio, fin, len(datos.columns), encabezado=True)
-    if len(datos):
-        _crear_tabla(ws, nombre_tabla, inicio, fin, len(datos.columns))
-    return fin + 3
-
-
 def _generar_libro(df: pd.DataFrame, destino) -> None:
+    """Escribe el libro completo con xlsxwriter, sin reabrirlo con openpyxl."""
     df = _normalizar_columnas(df)
     marca_columna = _nombre_columna(df.columns, ("MARCAEXTRAIDA", "MARCADECLARADA", "MARCAESTANDARIZADA", "MARCA"))
     qty_columna = _nombre_columna(df.columns, ("QTY2", "CANTIDAD", "QUANTITY"))
@@ -148,36 +105,51 @@ def _generar_libro(df: pd.DataFrame, destino) -> None:
     resumen_marcas = _resumen_marcas(df, marca_columna, qty_columna, fob_columna)
     resumen_caracteristicas = _resumen_caracteristicas(df, marca_columna, qty_columna, fob_columna)
 
-    with pd.ExcelWriter(destino, engine="openpyxl") as writer:
+    with pd.ExcelWriter(destino, engine="xlsxwriter") as writer:
+        workbook = writer.book
+        header = workbook.add_format({"bold": True, "font_color": COLOR_TEXT, "bg_color": COLOR_HEADER, "border": 1, "border_color": COLOR_BORDER})
+        title = workbook.add_format({"bold": True, "font_size": 18, "font_color": COLOR_HEADER})
+        section = workbook.add_format({"bold": True, "font_size": 13, "font_color": COLOR_HEADER})
+        subtitle = workbook.add_format({"italic": True, "font_color": "666666"})
+        percent = workbook.add_format({"num_format": "0.0%", "border": 1, "border_color": COLOR_BORDER})
+        body = workbook.add_format({"border": 1, "border_color": COLOR_BORDER, "bg_color": COLOR_BODY})
+        number = workbook.add_format({"num_format": "#,##0.00", "border": 1, "border_color": COLOR_BORDER})
+
         df.to_excel(writer, index=False, sheet_name="Clasificacion")
+        resultados = writer.sheets["Clasificacion"]
+        resultados.hide_gridlines(2)
+        resultados.freeze_panes(1, 0)
+        resultados.add_table(0, 0, len(df), len(df.columns) - 1, {
+            "name": "Tabla_Clasificacion",
+            "style": "Table Style Medium 2",
+            "columns": [{"header": str(columna)} for columna in df.columns],
+        })
+        resultados.set_column(0, len(df.columns) - 1, 15, body)
 
-    libro = load_workbook(destino)
-    resultados = libro["Clasificacion"]
-    resultados.sheet_view.showGridLines = False
-    resultados.freeze_panes = "A2"
-    _formatear_rango(resultados, 1, max(1, resultados.max_row), resultados.max_column, encabezado=True)
-    _crear_tabla(resultados, "Tabla_Clasificacion", 1, resultados.max_row, resultados.max_column)
+        resumen = workbook.add_worksheet("Resumen Ejecutivo")
+        writer.sheets["Resumen Ejecutivo"] = resumen
+        resumen.hide_gridlines(2)
+        resumen.freeze_panes(3, 0)
+        resumen.write("A1", "Resumen Ejecutivo de Clasificacion", title)
+        resumen.write("A2", f"Registros analizados: {len(df):,} | Marca: {marca_columna or 'no disponible'} | Qty2: {qty_columna or 'no disponible'} | FOB: {fob_columna or 'no disponible'}", subtitle)
 
-    resumen = libro.create_sheet("Resumen Ejecutivo", 0)
-    resumen.sheet_view.showGridLines = False
-    resumen.freeze_panes = "A4"
-    resumen["A1"] = "Resumen Ejecutivo de Clasificacion"
-    resumen["A1"].font = Font(bold=True, size=18, color=COLOR_HEADER)
-    resumen["A2"] = f"Registros analizados: {len(df):,} | Marca: {marca_columna or 'no disponible'} | Qty2: {qty_columna or 'no disponible'} | FOB: {fob_columna or 'no disponible'}"
-    resumen["A2"].font = Font(italic=True, color="666666")
+        def escribir_seccion(fila, titulo, explicacion, datos, nombre_tabla):
+            resumen.write(fila, 0, titulo, section)
+            resumen.write(fila + 1, 0, explicacion, subtitle)
+            inicio = fila + 3
+            datos.to_excel(writer, sheet_name="Resumen Ejecutivo", startrow=inicio, startcol=0, index=False)
+            fin = inicio + len(datos)
+            if len(datos):
+                resumen.add_table(inicio, 0, fin, len(datos.columns) - 1, {
+                    "name": nombre_tabla,
+                    "style": "Table Style Medium 2",
+                    "columns": [{"header": str(columna)} for columna in datos.columns],
+                })
+            return fin + 3
 
-    fila = 4
-    fila = _escribir_seccion(resumen, fila, "Ranking y participacion por marca", "Cantidad de registros, volumen, FOB total y participacion sobre el total.", resumen_marcas, "Tabla_Resumen_Marcas")
-    _escribir_seccion(resumen, fila, "Resumen por caracteristica", "Distribucion de valores clasificados con conteo, Qty2 y FOB cuando existen en el resultado.", resumen_caracteristicas, "Tabla_Resumen_Caracteristicas")
-
-    for hoja in libro.worksheets:
-        for columna in range(1, hoja.max_column + 1):
-            valores = [len(str(hoja.cell(fila, columna).value or "")) for fila in range(1, min(hoja.max_row, 1000) + 1)]
-            hoja.column_dimensions[get_column_letter(columna)].width = min(max(max(valores, default=10) + 3, 12), 55)
-        hoja.sheet_view.showGridLines = False
-    libro.save(destino)
-    if hasattr(destino, "seek"):
-        destino.seek(0)
+        fila = escribir_seccion(4, "Ranking y participacion por marca", "Cantidad de registros, volumen, FOB total y participacion sobre el total.", resumen_marcas, "Tabla_Resumen_Marcas")
+        escribir_seccion(fila, "Resumen por caracteristica", "Distribucion de valores clasificados con conteo, Qty2 y FOB cuando existen en el resultado.", resumen_caracteristicas, "Tabla_Resumen_Caracteristicas")
+        resumen.set_column(0, 8, 18)
 
 
 def generar_reporte_excel(df: pd.DataFrame, destino) -> None:
