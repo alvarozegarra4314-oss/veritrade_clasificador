@@ -47,6 +47,7 @@ from src.maestro.loader import CargarMaestro
 from src.excel_io import sanitizar_dataframe_para_excel
 from src.ia_rescate import RescatadorIA, GENAI_DISPONIBLE
 from src.maestro_optimizer import guardar_maestro_optimizado
+from src.excel_reporting import generar_reporte_excel
 
 # ---------------------------------------------------------------------
 # 0. INICIALIZACIÓN DE VARIABLES DE SESIÓN (SESSION STATE)
@@ -233,8 +234,7 @@ if procesar:
         # Buffer del resultado final
         df_export = sanitizar_dataframe_para_excel(df_resultado)
         output_buffer = BytesIO()
-        with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
-            df_export.to_excel(writer, index=False, sheet_name="Clasificacion")
+        generar_reporte_excel(df_export, output_buffer)
         st.session_state.df_export_data = output_buffer.getvalue()
 
     except Exception as e:

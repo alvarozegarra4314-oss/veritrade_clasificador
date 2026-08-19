@@ -10,6 +10,7 @@ import pandas as pd
 from src import config
 from src.pipeline import procesar_dataframe_dinamico
 from src.maestro_optimizer import guardar_maestro_optimizado
+from src.excel_reporting import generar_reporte_excel
 
 
 def main(linea: str = config.LINEA_PRODUCTO, rescatador_ia=None):
@@ -38,7 +39,7 @@ def main(linea: str = config.LINEA_PRODUCTO, rescatador_ia=None):
     path_output.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"3. Guardando resultado en: {path_output}")
-    df_procesado.to_excel(path_output, index=False)
+    generar_reporte_excel(df_procesado, path_output)
 
     # 4. Si hubo rescate IA con aprendizaje aprovechable, generamos el
     #    Maestro Optimizado (append de marcas/características + log de
