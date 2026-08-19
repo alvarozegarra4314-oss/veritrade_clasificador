@@ -42,6 +42,8 @@ from datetime import datetime
 from typing import Optional
 
 import pandas as pd
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 from src.texto_utils import limpiar_texto
 from src.maestro.reglas import es_candidato_marca_valido
@@ -239,9 +241,29 @@ def guardar_maestro_optimizado(ruta_maestro_original, propuestas: dict, ruta_sal
         col_prio = _col(df_marcas, "PRIORIDAD")
 
         if col_pat and col_est:
+            # Patrones ya existentes en el maestro real (no solo lo visto en
+            # esta corrida) -> evita re-agregar si este mismo maestro
+            # optimizado se retroalimenta como base la próxima vez.
+            patrones_existentes = {
+                limpiar_texto(str(p)).strip().upper()
+                for p in df_marcas[col_pat].dropna()
+            }
+
             prio_base = (df_marcas[col_prio].max() + 1) if col_prio and df_marcas[col_prio].notna().any() else 999
             filas_nuevas = []
+            omitidas = 0
             for item in propuestas["nuevas_marcas"]:
+                patron_norm = limpiar_texto(item["patron"]).strip().upper()
+                if patron_norm in patrones_existentes:
+                    omitidas += 1
+                    filas_log.append({
+                        "Fecha": ahora, "Tipo": "Marca", "Variable": "marca",
+                        "Valor_Aprendido": item["estandar"], "Patron_O_Palabra_Clave": item["patron"],
+                        "Descripcion_Origen": item["desc_origen"],
+                        "Estado": "Omitido — el patrón ya existe en el maestro",
+                    })
+                    continue
+                patrones_existentes.add(patron_norm)  # también dedupe dentro de esta misma corrida
                 fila = {c: None for c in df_marcas.columns}
                 fila[col_pat] = item["patron"]
                 fila[col_est] = item["estandar"]
@@ -257,7 +279,7 @@ def guardar_maestro_optimizado(ruta_maestro_original, propuestas: dict, ruta_sal
                 hojas[nombre_hoja_marcas] = pd.concat(
                     [df_marcas, pd.DataFrame(filas_nuevas)], ignore_index=True
                 )
-                resumen["marcas_agregadas"] = len(filas_nuevas)
+            resumen["marcas_agregadas"] = len(filas_nuevas)
 
     # --- Hoja de Características ---
     nombre_hoja_carac = next((n for n in hojas if "CARACTERISTICA" in n.upper()), None)
@@ -267,9 +289,50 @@ def guardar_maestro_optimizado(ruta_maestro_original, propuestas: dict, ruta_sal
         col_prio = _col(df_carac, "PRIORIDAD", "ORDEN_PRIORIDAD")
 
         if col_kw and "Variable" in df_carac.columns and "Valor_Resultado" in df_carac.columns:
+            # Dedupe real contra el maestro base, en dos niveles:
+            #  1) misma (variable, palabra_clave) -> ya existe exactamente esa regla
+            #  2) misma (variable, valor) -> ya hay ALGUNA regla que produce ese
+            #     valor para esa variable, aunque la palabra clave sea distinta;
+            #     agregar otra sería redundante y solo infla el maestro.
+            claves_existentes = set()
+            valores_existentes = set()
+            for _, fila_existente in df_carac.iterrows():
+                var_e = str(fila_existente.get("Variable", "")).strip().upper()
+                val_e = str(fila_existente.get("Valor_Resultado", "")).strip().upper()
+                kw_e = limpiar_texto(str(fila_existente.get(col_kw, ""))).strip().upper()
+                if var_e:
+                    if kw_e:
+                        claves_existentes.add((var_e, kw_e))
+                    if val_e:
+                        valores_existentes.add((var_e, val_e))
+
             prio_base = (df_carac[col_prio].max() + 1) if col_prio and df_carac[col_prio].notna().any() else 999
             filas_nuevas = []
             for item in propuestas["nuevas_caracteristicas"]:
+                var_norm = item["variable"].strip().upper()
+                val_norm = item["valor"].strip().upper()
+                kw_norm = limpiar_texto(item["palabra_clave"]).strip().upper()
+
+                if (var_norm, kw_norm) in claves_existentes:
+                    filas_log.append({
+                        "Fecha": ahora, "Tipo": "Caracteristica", "Variable": item["variable"],
+                        "Valor_Aprendido": item["valor"], "Patron_O_Palabra_Clave": item["palabra_clave"],
+                        "Descripcion_Origen": item["desc_origen"],
+                        "Estado": "Omitido — la palabra clave ya existe en el maestro para esa variable",
+                    })
+                    continue
+                if (var_norm, val_norm) in valores_existentes:
+                    filas_log.append({
+                        "Fecha": ahora, "Tipo": "Caracteristica", "Variable": item["variable"],
+                        "Valor_Aprendido": item["valor"], "Patron_O_Palabra_Clave": item["palabra_clave"],
+                        "Descripcion_Origen": item["desc_origen"],
+                        "Estado": "Omitido — ya existe una regla que produce ese valor para esa variable",
+                    })
+                    continue
+
+                claves_existentes.add((var_norm, kw_norm))
+                valores_existentes.add((var_norm, val_norm))
+
                 fila = {c: None for c in df_carac.columns}
                 fila["Variable"] = item["variable"]
                 fila["Valor_Resultado"] = item["valor"]
@@ -286,7 +349,7 @@ def guardar_maestro_optimizado(ruta_maestro_original, propuestas: dict, ruta_sal
                 hojas[nombre_hoja_carac] = pd.concat(
                     [df_carac, pd.DataFrame(filas_nuevas)], ignore_index=True
                 )
-                resumen["caracteristicas_agregadas"] = len(filas_nuevas)
+            resumen["caracteristicas_agregadas"] = len(filas_nuevas)
 
     # --- Pendientes de revisión manual (no se tocan reglas, solo auditoría) ---
     for item in propuestas.get("revisar_manual", []):
@@ -306,6 +369,98 @@ def guardar_maestro_optimizado(ruta_maestro_original, propuestas: dict, ruta_sal
 
     with pd.ExcelWriter(ruta_salida, engine="openpyxl") as writer:
         for nombre_hoja, df in hojas.items():
-            df.to_excel(writer, sheet_name=nombre_hoja[:31], index=False)
+            hoja_final = nombre_hoja[:31]
+            df.to_excel(writer, sheet_name=hoja_final, index=False)
+            ws = writer.sheets[hoja_final]
+            es_log = hoja_final == "Log_Aprendizaje_IA"
+            _aplicar_estilo_tabla(ws, df, es_log=es_log)
 
     return resumen
+
+
+# ----------------------------------------------------------------------
+# Formato visual del Excel de salida
+# ----------------------------------------------------------------------
+_COLOR_HEADER = "1F4E78"        # azul oscuro
+_COLOR_HEADER_FONT = "FFFFFF"
+_COLOR_BANDA = "DCE6F1"         # azul muy claro, filas pares
+_COLOR_BORDE = "B7C6D9"
+
+_COLOR_OK = "E2EFDA"            # verde claro -> agregado automáticamente
+_COLOR_OMITIDO = "FFF2CC"       # amarillo claro -> omitido por duplicado
+_COLOR_PENDIENTE = "FCE4E4"     # rojo claro -> pendiente revisión humana
+
+_BORDE_FINO = Side(style="thin", color=_COLOR_BORDE)
+_BORDE_CELDA = Border(left=_BORDE_FINO, right=_BORDE_FINO, top=_BORDE_FINO, bottom=_BORDE_FINO)
+
+
+def _color_fila_log(estado: str) -> Optional[str]:
+    if not estado:
+        return None
+    estado_up = str(estado).upper()
+    if estado_up.startswith("AGREGADO"):
+        return _COLOR_OK
+    if estado_up.startswith("OMITIDO"):
+        return _COLOR_OMITIDO
+    if estado_up.startswith("PENDIENTE"):
+        return _COLOR_PENDIENTE
+    return None
+
+
+def _aplicar_estilo_tabla(ws, df: pd.DataFrame, es_log: bool = False) -> None:
+    """
+    Aplica un formato de "tabla bonita" simple: encabezado con color y
+    negrita, bandas alternadas suaves, bordes finos, autofiltro, panel
+    congelado en la fila 1 y ancho de columna ajustado al contenido.
+    En la hoja de log, además pinta cada fila según el Estado (verde =
+    agregado, amarillo = omitido por duplicado, rojo = pendiente de
+    revisión humana) para poder auditar de un vistazo.
+    """
+    if ws.max_row == 0 or ws.max_column == 0:
+        return
+
+    n_filas = len(df)
+    n_cols = len(df.columns)
+
+    # --- Encabezado ---
+    for col_idx in range(1, n_cols + 1):
+        celda = ws.cell(row=1, column=col_idx)
+        celda.font = Font(bold=True, color=_COLOR_HEADER_FONT)
+        celda.fill = PatternFill("solid", fgColor=_COLOR_HEADER)
+        celda.alignment = Alignment(vertical="center", horizontal="center", wrap_text=True)
+        celda.border = _BORDE_CELDA
+
+    ws.freeze_panes = "A2"
+    ws.row_dimensions[1].height = 22
+
+    # --- Filas de datos ---
+    col_estado_idx = None
+    if es_log and "Estado" in df.columns:
+        col_estado_idx = list(df.columns).index("Estado") + 1
+
+    for fila_idx in range(2, n_filas + 2):
+        color_fila = None
+        if col_estado_idx:
+            estado_val = ws.cell(row=fila_idx, column=col_estado_idx).value
+            color_fila = _color_fila_log(estado_val)
+        if color_fila is None and (fila_idx % 2 == 0):
+            color_fila = _COLOR_BANDA  # banda alterna suave si no aplica color de estado
+
+        for col_idx in range(1, n_cols + 1):
+            celda = ws.cell(row=fila_idx, column=col_idx)
+            celda.border = _BORDE_CELDA
+            celda.alignment = Alignment(vertical="center", wrap_text=False)
+            if color_fila:
+                celda.fill = PatternFill("solid", fgColor=color_fila)
+
+    # --- Autofiltro y ancho de columnas ajustado al contenido ---
+    ws.auto_filter.ref = ws.dimensions
+    for col_idx, col_name in enumerate(df.columns, start=1):
+        letra = get_column_letter(col_idx)
+        try:
+            max_contenido = df[col_name].astype(str).map(len).max()
+        except Exception:
+            max_contenido = 10
+        max_contenido = max_contenido if pd.notna(max_contenido) else 10
+        ancho = min(max(len(str(col_name)), int(max_contenido)) + 3, 60)
+        ws.column_dimensions[letra].width = ancho
