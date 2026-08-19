@@ -13,8 +13,12 @@ Centraliza la presentación profesional de reportes y maestros:
 from __future__ import annotations
 
 import re
+import copy
+import os
+import tempfile
 from typing import Optional
 import pandas as pd
+from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
@@ -105,11 +109,16 @@ def aplicar_estilo_hoja_excel(ws, df: pd.DataFrame, es_log: bool = False) -> Non
             celda.alignment = Alignment(vertical="center", wrap_text=False)
             celda.fill = PatternFill("solid", fgColor=color_fila)
 
-    # 4. Autofiltro
-    ws.auto_filter.ref = ws.dimensions
+    # 4. Autofiltro solo para hojas de datos. Las instrucciones no son una
+    # tabla y no deben llevar filtros ni referencias de tabla.
+    es_instrucciones = es_hoja_instrucciones(ws.title)
+    if not es_instrucciones:
+        ws.auto_filter.ref = ws.dimensions
+    else:
+        ws.auto_filter.ref = None
 
     # 5. Crear Tabla Nativa de Excel (Ctrl+T) solo si NO es hoja de instrucciones
-    if not es_hoja_instrucciones(ws.title) and ws.max_row >= 2 and ws.max_column >= 1 and not ws.tables:
+    if not es_instrucciones and ws.max_row >= 2 and ws.max_column >= 1 and not ws.tables:
         ref = f"A1:{get_column_letter(n_cols)}{n_filas + 1}"
         nombre_limpio = re.sub(r"[^A-Za-z0-9_]", "_", ws.title)
         nombre_tabla = f"Tabla_{nombre_limpio}"[:240]
@@ -134,3 +143,63 @@ def aplicar_estilo_hoja_excel(ws, df: pd.DataFrame, es_log: bool = False) -> Non
         max_contenido = max_contenido if pd.notna(max_contenido) else 10
         ancho = min(max(len(str(col_name)), int(max_contenido)) + 3, 60)
         ws.column_dimensions[letra].width = ancho
+
+
+def restaurar_hoja_instrucciones(ruta_salida, ruta_original) -> None:
+    """Restaura la hoja de instrucciones original sin pasarla por pandas.
+
+    La hoja contiene texto, espacios y estilos que no deben interpretarse
+    como encabezados de datos. Se guarda mediante un archivo temporal para
+    evitar dejar un XLSX incompleto si el proceso se interrumpe.
+    """
+    libro_salida = load_workbook(ruta_salida)
+    libro_original = load_workbook(ruta_original)
+    nombre = next((n for n in libro_original.sheetnames if es_hoja_instrucciones(n)), None)
+    if not nombre or nombre not in libro_salida.sheetnames:
+        return
+
+    hoja_original = libro_original[nombre]
+    hoja_salida = libro_salida[nombre]
+    indice = libro_salida.index(hoja_salida)
+    libro_salida.remove(hoja_salida)
+    hoja_nueva = libro_salida.create_sheet(nombre, indice)
+
+    for fila in hoja_original.iter_rows():
+        for celda_original in fila:
+            celda_nueva = hoja_nueva[celda_original.coordinate]
+            celda_nueva.value = celda_original.value
+            if celda_original.has_style:
+                # No copiar _style entre libros: sus índices internos no
+                # pertenecen al libro destino y Excel intenta repararlos.
+                celda_nueva.font = copy.copy(celda_original.font)
+                celda_nueva.fill = copy.copy(celda_original.fill)
+                celda_nueva.border = copy.copy(celda_original.border)
+                celda_nueva.alignment = copy.copy(celda_original.alignment)
+                celda_nueva.protection = copy.copy(celda_original.protection)
+            if celda_original.number_format:
+                celda_nueva.number_format = celda_original.number_format
+            if celda_original.hyperlink:
+                celda_nueva._hyperlink = copy.copy(celda_original.hyperlink)
+            if celda_original.comment:
+                celda_nueva.comment = copy.copy(celda_original.comment)
+
+    for rango in hoja_original.merged_cells.ranges:
+        hoja_nueva.merge_cells(str(rango))
+    for letra, dimension in hoja_original.column_dimensions.items():
+        hoja_nueva.column_dimensions[letra] = copy.copy(dimension)
+    for numero, dimension in hoja_original.row_dimensions.items():
+        hoja_nueva.row_dimensions[numero] = copy.copy(dimension)
+
+    hoja_nueva.sheet_view.showGridLines = False
+    hoja_nueva.auto_filter.ref = None
+    hoja_nueva.freeze_panes = None
+
+    carpeta = os.path.dirname(os.path.abspath(str(ruta_salida)))
+    fd, temporal = tempfile.mkstemp(suffix=".xlsx", dir=carpeta)
+    os.close(fd)
+    try:
+        libro_salida.save(temporal)
+        os.replace(temporal, ruta_salida)
+    finally:
+        if os.path.exists(temporal):
+            os.remove(temporal)

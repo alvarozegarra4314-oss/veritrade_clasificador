@@ -38,6 +38,8 @@ origen, para poder auditar/depurar el maestro con el tiempo.
 from __future__ import annotations
 
 import re
+import os
+import tempfile
 from datetime import datetime
 from typing import Optional
 
@@ -45,7 +47,7 @@ import pandas as pd
 
 from src.texto_utils import limpiar_texto
 from src.maestro.reglas import es_candidato_marca_valido
-from src.excel_estilos import aplicar_estilo_hoja_excel
+from src.excel_estilos import aplicar_estilo_hoja_excel, restaurar_hoja_instrucciones
 
 
 # ----------------------------------------------------------------------
@@ -366,12 +368,25 @@ def guardar_maestro_optimizado(ruta_maestro_original, propuestas: dict, ruta_sal
         else:
             hojas["Log_Aprendizaje_IA"] = df_log_nuevo
 
-    with pd.ExcelWriter(ruta_salida, engine="openpyxl") as writer:
-        for nombre_hoja, df in hojas.items():
-            hoja_final = nombre_hoja[:31]
-            df.to_excel(writer, sheet_name=hoja_final, index=False)
-            ws = writer.sheets[hoja_final]
-            es_log = hoja_final == "Log_Aprendizaje_IA"
-            aplicar_estilo_hoja_excel(ws, df, es_log=es_log)
+    ruta_salida = os.fspath(ruta_salida)
+    carpeta_salida = os.path.dirname(os.path.abspath(ruta_salida))
+    fd_temporal, ruta_temporal = tempfile.mkstemp(suffix=".xlsx", dir=carpeta_salida)
+    os.close(fd_temporal)
+    try:
+        with pd.ExcelWriter(ruta_temporal, engine="openpyxl") as writer:
+            for nombre_hoja, df in hojas.items():
+                hoja_final = nombre_hoja[:31]
+                df.to_excel(writer, sheet_name=hoja_final, index=False)
+                ws = writer.sheets[hoja_final]
+                es_log = hoja_final == "Log_Aprendizaje_IA"
+                aplicar_estilo_hoja_excel(ws, df, es_log=es_log)
+
+        # La primera hoja es documentación, no datos tabulares. Se restaura
+        # desde el original después de cerrar el writer para conservar su diseño.
+        restaurar_hoja_instrucciones(ruta_temporal, ruta_maestro_original)
+        os.replace(ruta_temporal, ruta_salida)
+    finally:
+        if os.path.exists(ruta_temporal):
+            os.remove(ruta_temporal)
 
     return resumen
