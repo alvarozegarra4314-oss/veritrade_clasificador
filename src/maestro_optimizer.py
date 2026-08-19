@@ -42,12 +42,10 @@ from datetime import datetime
 from typing import Optional
 
 import pandas as pd
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.worksheet.table import Table, TableStyleInfo
-from openpyxl.utils import get_column_letter
 
 from src.texto_utils import limpiar_texto
 from src.maestro.reglas import es_candidato_marca_valido
+from src.excel_estilos import aplicar_estilo_hoja_excel
 
 
 # ----------------------------------------------------------------------
@@ -374,111 +372,6 @@ def guardar_maestro_optimizado(ruta_maestro_original, propuestas: dict, ruta_sal
             df.to_excel(writer, sheet_name=hoja_final, index=False)
             ws = writer.sheets[hoja_final]
             es_log = hoja_final == "Log_Aprendizaje_IA"
-            _aplicar_estilo_tabla(ws, df, es_log=es_log)
+            aplicar_estilo_hoja_excel(ws, df, es_log=es_log)
 
     return resumen
-
-
-# ----------------------------------------------------------------------
-# Formato visual del Excel de salida
-# ----------------------------------------------------------------------
-_COLOR_HEADER = "1F4E78"        # azul oscuro
-_COLOR_HEADER_FONT = "FFFFFF"
-_COLOR_BANDA = "DCE6F1"         # azul muy claro, filas pares
-_COLOR_BORDE = "B7C6D9"
-
-_COLOR_OK = "E2EFDA"            # verde claro -> agregado automáticamente
-_COLOR_OMITIDO = "FFF2CC"       # amarillo claro -> omitido por duplicado
-_COLOR_PENDIENTE = "FCE4E4"     # rojo claro -> pendiente revisión humana
-
-_BORDE_FINO = Side(style="thin", color=_COLOR_BORDE)
-_BORDE_CELDA = Border(left=_BORDE_FINO, right=_BORDE_FINO, top=_BORDE_FINO, bottom=_BORDE_FINO)
-
-
-def _color_fila_log(estado: str) -> Optional[str]:
-    if not estado:
-        return None
-    estado_up = str(estado).upper()
-    if estado_up.startswith("AGREGADO"):
-        return _COLOR_OK
-    if estado_up.startswith("OMITIDO"):
-        return _COLOR_OMITIDO
-    if estado_up.startswith("PENDIENTE"):
-        return _COLOR_PENDIENTE
-    return None
-
-
-def _aplicar_estilo_tabla(ws, df: pd.DataFrame, es_log: bool = False) -> None:
-    """
-    Aplica un formato de "tabla bonita": tabla nativa de Excel con
-    encabezado y bandas alternadas, además de bordes, autofiltro, panel
-    congelado en la fila 1 y ancho de columna ajustado al contenido.
-    En la hoja de log, además pinta cada fila según el Estado (verde =
-    agregado, amarillo = omitido por duplicado, rojo = pendiente de
-    revisión humana) para poder auditar de un vistazo.
-    """
-    if ws.max_row == 0 or ws.max_column == 0:
-        return
-
-    n_filas = len(df)
-    n_cols = len(df.columns)
-
-    # --- Encabezado ---
-    for col_idx in range(1, n_cols + 1):
-        celda = ws.cell(row=1, column=col_idx)
-        celda.font = Font(bold=True, color=_COLOR_HEADER_FONT)
-        celda.fill = PatternFill("solid", fgColor=_COLOR_HEADER)
-        celda.alignment = Alignment(vertical="center", horizontal="center", wrap_text=True)
-        celda.border = _BORDE_CELDA
-
-    ws.freeze_panes = "A2"
-    ws.row_dimensions[1].height = 22
-
-    # --- Filas de datos ---
-    col_estado_idx = None
-    if es_log and "Estado" in df.columns:
-        col_estado_idx = list(df.columns).index("Estado") + 1
-
-    for fila_idx in range(2, n_filas + 2):
-        color_fila = None
-        if col_estado_idx:
-            estado_val = ws.cell(row=fila_idx, column=col_estado_idx).value
-            color_fila = _color_fila_log(estado_val)
-        if color_fila is None and (fila_idx % 2 == 0):
-            color_fila = _COLOR_BANDA  # banda alterna suave si no aplica color de estado
-
-        for col_idx in range(1, n_cols + 1):
-            celda = ws.cell(row=fila_idx, column=col_idx)
-            celda.border = _BORDE_CELDA
-            celda.alignment = Alignment(vertical="center", wrap_text=False)
-            if color_fila:
-                celda.fill = PatternFill("solid", fgColor=color_fila)
-
-    # --- Autofiltro y ancho de columnas ajustado al contenido ---
-    ws.auto_filter.ref = ws.dimensions
-
-    # Registrar una tabla nativa hace que Excel la trate como Ctrl+T:
-    # filtros, bandas y expansión automática al agregar filas.
-    if ws.max_row >= 2 and ws.max_column >= 1 and not ws.tables:
-        ref = f"A1:{get_column_letter(n_cols)}{n_filas + 1}"
-        nombre_tabla = "Tabla_" + re.sub(r"[^A-Za-z0-9_]", "_", ws.title)
-        nombre_tabla = nombre_tabla[:240]
-        tabla = Table(displayName=nombre_tabla, ref=ref)
-        tabla.tableStyleInfo = TableStyleInfo(
-            name="TableStyleMedium2",
-            showFirstColumn=False,
-            showLastColumn=False,
-            showRowStripes=True,
-            showColumnStripes=False,
-        )
-        ws.add_table(tabla)
-
-    for col_idx, col_name in enumerate(df.columns, start=1):
-        letra = get_column_letter(col_idx)
-        try:
-            max_contenido = df[col_name].astype(str).map(len).max()
-        except Exception:
-            max_contenido = 10
-        max_contenido = max_contenido if pd.notna(max_contenido) else 10
-        ancho = min(max(len(str(col_name)), int(max_contenido)) + 3, 60)
-        ws.column_dimensions[letra].width = ancho
