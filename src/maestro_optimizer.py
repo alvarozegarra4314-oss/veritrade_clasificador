@@ -43,6 +43,7 @@ from typing import Optional
 
 import pandas as pd
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
 
 from src.texto_utils import limpiar_texto
@@ -409,8 +410,8 @@ def _color_fila_log(estado: str) -> Optional[str]:
 
 def _aplicar_estilo_tabla(ws, df: pd.DataFrame, es_log: bool = False) -> None:
     """
-    Aplica un formato de "tabla bonita" simple: encabezado con color y
-    negrita, bandas alternadas suaves, bordes finos, autofiltro, panel
+    Aplica un formato de "tabla bonita": tabla nativa de Excel con
+    encabezado y bandas alternadas, además de bordes, autofiltro, panel
     congelado en la fila 1 y ancho de columna ajustado al contenido.
     En la hoja de log, además pinta cada fila según el Estado (verde =
     agregado, amarillo = omitido por duplicado, rojo = pendiente de
@@ -455,6 +456,23 @@ def _aplicar_estilo_tabla(ws, df: pd.DataFrame, es_log: bool = False) -> None:
 
     # --- Autofiltro y ancho de columnas ajustado al contenido ---
     ws.auto_filter.ref = ws.dimensions
+
+    # Registrar una tabla nativa hace que Excel la trate como Ctrl+T:
+    # filtros, bandas y expansión automática al agregar filas.
+    if ws.max_row >= 2 and ws.max_column >= 1 and not ws.tables:
+        ref = f"A1:{get_column_letter(n_cols)}{n_filas + 1}"
+        nombre_tabla = "Tabla_" + re.sub(r"[^A-Za-z0-9_]", "_", ws.title)
+        nombre_tabla = nombre_tabla[:240]
+        tabla = Table(displayName=nombre_tabla, ref=ref)
+        tabla.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium2",
+            showFirstColumn=False,
+            showLastColumn=False,
+            showRowStripes=True,
+            showColumnStripes=False,
+        )
+        ws.add_table(tabla)
+
     for col_idx, col_name in enumerate(df.columns, start=1):
         letra = get_column_letter(col_idx)
         try:
