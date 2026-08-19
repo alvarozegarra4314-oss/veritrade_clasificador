@@ -51,9 +51,10 @@ def _normalizar_columnas(df: pd.DataFrame) -> pd.DataFrame:
     nombres = []
     vistos: dict[str, int] = {}
     for indice, columna in enumerate(resultado.columns, start=1):
-        base = str(columna).strip() or f"Columna_{indice}"
-        vistos[base] = vistos.get(base, 0) + 1
-        nombres.append(base if vistos[base] == 1 else f"{base}_{vistos[base]}")
+        base = re.sub(r"[\x00-\x1f]", "", str(columna)).strip() or f"Columna_{indice}"
+        clave = base.casefold()
+        vistos[clave] = vistos.get(clave, 0) + 1
+        nombres.append(base if vistos[clave] == 1 else f"{base}_{vistos[clave]}")
     resultado.columns = nombres
     return resultado
 
@@ -175,6 +176,8 @@ def _generar_libro(df: pd.DataFrame, destino) -> None:
             hoja.column_dimensions[get_column_letter(columna)].width = min(max(max(valores, default=10) + 3, 12), 55)
         hoja.sheet_view.showGridLines = False
     libro.save(destino)
+    if hasattr(destino, "seek"):
+        destino.seek(0)
 
 
 def generar_reporte_excel(df: pd.DataFrame, destino) -> None:
@@ -183,15 +186,16 @@ def generar_reporte_excel(df: pd.DataFrame, destino) -> None:
         raise ValueError("No hay datos para generar el reporte Excel.")
     if isinstance(destino, BytesIO):
         _generar_libro(df, destino)
-        destino.seek(0)
         return
     ruta = Path(destino)
     ruta.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporal = tempfile.mkstemp(suffix=".xlsx", dir=ruta.parent)
-    os.close(fd)
+    buffer = BytesIO()
     try:
-        _generar_libro(df, temporal)
+        _generar_libro(df, buffer)
+        fd, temporal = tempfile.mkstemp(suffix=".xlsx", dir=ruta.parent)
+        with os.fdopen(fd, "wb") as archivo:
+            archivo.write(buffer.getvalue())
         os.replace(temporal, ruta)
     finally:
-        if os.path.exists(temporal):
+        if "temporal" in locals() and os.path.exists(temporal):
             os.remove(temporal)
