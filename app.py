@@ -65,12 +65,66 @@ if "proceso_completado" not in st.session_state:
     st.session_state.proceso_completado = False
 if "kpis" not in st.session_state:
     st.session_state.kpis = {}
+if "df_pendientes" not in st.session_state:
+    st.session_state.df_pendientes = None
+if "linea_detectada" not in st.session_state:
+    st.session_state.linea_detectada = "Producto"
 
 def _obtener_api_key_de_secrets() -> str:
     try:
         return st.secrets.get("GEMINI_API_KEY", "")
     except Exception:
         return ""
+
+# Valores que el motor considera "marca sin resolver" (defaults del maestro)
+VALORES_MARCA_SIN_RESOLVER = {
+    "MARCA GENERICA", "MARCA PRINCIPAL", "MARCA COMPONENTES",
+    "S/M", "SIN MARCA", "GENERICO", "NO APLICA",
+}
+
+
+@st.cache_data(show_spinner=False)
+def _listar_hojas_y_filas(bytes_raw: bytes):
+    """Lista las hojas de un Excel, su cantidad de filas y columnas con nombre (rápido)."""
+    import openpyxl
+    wb = openpyxl.load_workbook(BytesIO(bytes_raw), read_only=True, data_only=True)
+    info = []
+    for ws in wb.worksheets:
+        # Leer solo la primera fila para contar columnas con nombre real
+        cols_nombradas = 0
+        for fila in ws.iter_rows(min_row=1, max_row=1, values_only=True):
+            cols_nombradas = sum(1 for v in fila if v is not None and not str(v).startswith("Unnamed"))
+        info.append({"nombre": ws.title, "filas": int(ws.max_row or 0), "cols_nombradas": cols_nombradas})
+    wb.close()
+    return info
+
+
+def _hoja_recomendada(info_hojas):
+    """
+    Preselecciona la hoja de datos real:
+    prioriza nombres tipo 'Veritrade'/'data'/'2025'/'2024' CON columnas
+    nombradas (descarta hojas auxiliares de gráficos que salen 'Unnamed').
+    """
+    if not info_hojas:
+        return None
+
+    def peso(item):
+        nombre = item["nombre"].upper()
+        es_datos = any(k in nombre for k in ("VERITRADE", "DATA", "2025", "2024"))
+        tiene_cols = item.get("cols_nombradas", 0) >= 3
+        bonus = 10_000_000 if (es_datos and tiene_cols) else (1_000_000 if es_datos else 0)
+        return bonus + item["filas"]
+
+    return max(info_hojas, key=peso)["nombre"]
+
+
+def _cargar_maestro_incluido():
+    """Devuelve (bytes, nombre) del maestro incluido en el proyecto, o (None, None)."""
+    ruta = BASE_DIR / "data" / "maestro" / "Maestro_UPS_v2.xlsx"
+    if ruta.exists():
+        return ruta.read_bytes(), ruta.name
+    return None, None
+
 
 @st.cache_data(show_spinner=False)
 def ejecutar_pipeline_reglas_cached(bytes_raw: bytes, bytes_maestro: bytes, hoja: str):
@@ -82,7 +136,7 @@ def ejecutar_pipeline_reglas_cached(bytes_raw: bytes, bytes_maestro: bytes, hoja
 # ENCABEZADO
 # =====================================================================
 st.title("🗂️ Clasificador de Importaciones — Veritrade")
-st.markdown("Sube el archivo de datos crudos y el maestro de reglas para procesar e identificar variables técnicas y marcas comerciales.")
+st.markdown("Sube tu archivo de importaciones y obtén la clasificación por producto y marca. **No necesitas saber de reglas:** la herramienta aplica el maestro de la línea automáticamente y, si activas la IA, rescata lo que no logra resolver.")
 st.write("") # Espaciador
 
 # =====================================================================
@@ -92,7 +146,8 @@ c_raw, c_maestro = st.columns(2)
 
 hoja_raw_valida = False
 archivo_raw = None
-archivo_maestro = None
+maestro_bytes = None
+maestro_nombre = None
 maestro_info = None
 
 with c_raw:
@@ -100,34 +155,73 @@ with c_raw:
         st.subheader("1. Archivo de Datos Crudos")
         st.caption("Sube el archivo Excel con las descripciones a analizar.")
         archivo_raw = st.file_uploader("Arrastra tu archivo .xlsx aquí", type=["xlsx"], label_visibility="collapsed")
-        
-        hoja_raw = st.text_input("Nombre de la hoja a procesar", value="Datos")
-        
+
         if archivo_raw is not None:
             try:
                 archivo_raw.seek(0)
-                hojas_disponibles_raw = pd.ExcelFile(archivo_raw, engine="openpyxl").sheet_names
-                if hoja_raw in hojas_disponibles_raw:
+                info_hojas = _listar_hojas_y_filas(archivo_raw.getvalue())
+                nombres_hojas = [i["nombre"] for i in info_hojas]
+
+                if nombres_hojas:
+                    recomendada = _hoja_recomendada(info_hojas)
+                    idx_default = nombres_hojas.index(recomendada) if recomendada in nombres_hojas else 0
+                    hoja_raw = st.selectbox(
+                        "Hoja a procesar",
+                        nombres_hojas,
+                        index=idx_default,
+                        help="Se preseleccionó automáticamente la hoja con más datos.",
+                    )
+                    filas_estimadas = info_hojas[idx_default]["filas"]
+                    cols_nombradas = info_hojas[idx_default].get("cols_nombradas", 0)
                     hoja_raw_valida = True
+                    st.caption(f"📄 Hoja **{hoja_raw}** — ~{filas_estimadas:,} filas · {cols_nombradas} columnas")
+
+                    # Vista previa rápida del archivo crudo (encabezados + 5 filas)
+                    df_prev = pd.read_excel(BytesIO(archivo_raw.getvalue()), sheet_name=hoja_raw, nrows=5)
+                    with st.expander("👀 Vista previa del archivo crudo"):
+                        st.caption(f"Columnas detectadas: {len(df_prev.columns)}")
+                        st.dataframe(df_prev, use_container_width=True, hide_index=True)
                 else:
-                    st.error(f"❌ La hoja **'{hoja_raw}'** no existe. Disponibles: {', '.join(hojas_disponibles_raw)}")
+                    st.error("El archivo no contiene hojas.")
+                    hoja_raw = None
             except Exception as e:
                 st.error(f"No se pudo leer el archivo: {e}")
+                hoja_raw = None
+        else:
+            hoja_raw = None
 
 with c_maestro:
     with st.container(border=True):
         st.subheader("2. Maestro de Reglas")
-        st.caption("Catálogo de marcas, condiciones y variables paramétricas.")
-        archivo_maestro = st.file_uploader("Arrastra tu archivo maestro .xlsx aquí", type=["xlsx"], label_visibility="collapsed", key="up_maestro")
-        
-        if archivo_maestro is not None:
+        st.caption("Reglas de marcas, condiciones y variables paramétricas.")
+
+        fuente_maestro = st.radio(
+            "Fuente del maestro",
+            ["Usar maestro incluido (UPS)", "Subir mi propio maestro"],
+            horizontal=True,
+        )
+
+        if fuente_maestro == "Subir mi propio maestro":
+            archivo_maestro_up = st.file_uploader(
+                "Arrastra tu archivo maestro .xlsx aquí",
+                type=["xlsx"], label_visibility="collapsed", key="up_maestro",
+            )
+            if archivo_maestro_up is not None:
+                archivo_maestro_up.seek(0)
+                maestro_bytes = archivo_maestro_up.getvalue()
+                maestro_nombre = archivo_maestro_up.name
+        else:
+            maestro_bytes, maestro_nombre = _cargar_maestro_incluido()
+            if maestro_bytes is None:
+                st.warning("⚠️ No se encontró el maestro incluido. Cambia a 'Subir mi propio maestro'.")
+
+        if maestro_bytes:
             try:
-                archivo_maestro.seek(0)
-                maestro_info = CargarMaestro(ruta_excel=archivo_maestro)
+                maestro_info = CargarMaestro(ruta_excel=BytesIO(maestro_bytes))
                 linea_detectada = maestro_info.config_linea.get("LINEA_PRODUCTO", "Producto")
                 n_cond = len(getattr(maestro_info, "condicionales", []))
-                
-                st.success(f"✅ **Línea:** {linea_detectada} | **Reglas activas:** {n_cond}")
+                st.session_state.linea_detectada = linea_detectada
+                st.success(f"✅ **Maestro:** {maestro_nombre} | **Línea:** {linea_detectada} | **Reglas activas:** {n_cond}")
             except Exception as e:
                 st.warning(f"Error al leer el maestro: {e}")
 
@@ -160,7 +254,7 @@ with st.container(border=True):
 # SECCIÓN 3: ACCIÓN PRINCIPAL (PROCESAMIENTO)
 # =====================================================================
 st.write("") # Espaciador
-listo_para_procesar = (archivo_raw and archivo_maestro and hoja_raw_valida and (not usar_ia or api_key))
+listo_para_procesar = (archivo_raw and maestro_bytes and hoja_raw_valida and (not usar_ia or api_key))
 
 procesar = st.button(
     "▶️ PROCESAR CLASIFICACIÓN", 
@@ -170,15 +264,14 @@ procesar = st.button(
 )
 
 if procesar:
-    linea = maestro_info.config_linea.get("LINEA_PRODUCTO", "Producto") if maestro_info else "Producto"
+    linea = st.session_state.get("linea_detectada", "Producto")
     
     try:
         archivo_raw.seek(0)
-        archivo_maestro.seek(0)
 
         with st.spinner("Aplicando reglas deterministas..."):
             df_raw, maestro = ejecutar_pipeline_reglas_cached(
-                archivo_raw.getvalue(), archivo_maestro.getvalue(), hoja_raw
+                archivo_raw.getvalue(), maestro_bytes, hoja_raw
             )
 
         rescatador = None
@@ -201,22 +294,42 @@ if procesar:
         st.session_state.df_resultado = df_resultado
         st.session_state.linea_producto = linea
         st.session_state.proceso_completado = True
-        
-        # Calcular y guardar KPIs
+
+        # ---- KPIs + Cobertura del análisis ----
         total_filas = len(df_resultado)
-        kpis = {"total": total_filas, "rescatados": 0, "cache": 0, "nuevas": 0, "errores": 0}
-        
+        kpis = {
+            "total": total_filas, "rescatados": 0, "cache": 0, "nuevas": 0, "errores": 0,
+            "con_producto": 0, "sin_producto": 0, "sin_marca": 0, "pendientes": 0,
+        }
+
+        if "Producto_Declarado" in df_resultado:
+            kpis["con_producto"] = int(df_resultado["Producto_Declarado"].notna().sum())
+            kpis["sin_producto"] = int(df_resultado["Producto_Declarado"].isna().sum())
+
+        if "Marca_Extraida" in df_resultado:
+            kpis["sin_marca"] = int(
+                df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER).sum()
+            )
+
+        # Pendientes = sin producto o sin marca
+        pendiente_mask = pd.Series(False, index=df_resultado.index)
+        if "Producto_Declarado" in df_resultado:
+            pendiente_mask |= df_resultado["Producto_Declarado"].isna()
+        if "Marca_Extraida" in df_resultado:
+            pendiente_mask |= df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER)
+        kpis["pendientes"] = int(pendiente_mask.sum())
+        st.session_state.df_pendientes = df_resultado[pendiente_mask].copy()
+
         if rescatador is not None:
             kpis["rescatados"] = int(df_resultado["Rescatado_Por_IA"].sum()) if "Rescatado_Por_IA" in df_resultado else 0
             kpis["cache"] = rescatador.llamadas_desde_cache
             kpis["errores"] = rescatador.errores
-            
+
             propuestas = getattr(rescatador, "propuestas_aprendizaje", None)
             if propuestas and (propuestas.get("nuevas_marcas") or propuestas.get("nuevas_caracteristicas")):
-                archivo_maestro.seek(0)
                 buffer_maestro_opt = BytesIO()
                 resumen_opt = guardar_maestro_optimizado(
-                    ruta_maestro_original=archivo_maestro, propuestas=propuestas, ruta_salida=buffer_maestro_opt
+                    ruta_maestro_original=BytesIO(maestro_bytes), propuestas=propuestas, ruta_salida=buffer_maestro_opt
                 )
                 st.session_state.maestro_opt_data = buffer_maestro_opt.getvalue()
                 st.session_state.resumen_opt = resumen_opt
@@ -227,7 +340,7 @@ if procesar:
         else:
             st.session_state.maestro_opt_data = None
             st.session_state.resumen_opt = None
-            
+
         st.session_state.kpis = kpis
 
         # Buffer del resultado final
@@ -266,6 +379,44 @@ if st.session_state.proceso_completado and st.session_state.df_resultado is not 
         st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
 
     st.write("") # Espaciador
+
+    # ---- Cobertura del análisis (transparencia para el cliente) ----
+    total = max(kpis.get("total", 1), 1)
+    con_producto = kpis.get("con_producto", 0)
+    sin_producto = kpis.get("sin_producto", 0)
+    sin_marca = kpis.get("sin_marca", 0)
+    pendientes = kpis.get("pendientes", 0)
+
+    st.markdown("#### 🎯 Cobertura del análisis")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("✅ Con producto", f"{con_producto:,}", help="Filas donde se identificó el tipo de producto (ej. UPS).")
+    c2.metric("❌ Sin producto", f"{sin_producto:,}", help="Filas donde no se pudo identificar el producto.")
+    c3.metric("🏷️ Sin marca", f"{sin_marca:,}", help="Filas con marca genérica o sin marca.")
+    c4.metric("⚠️ Pendientes", f"{pendientes:,}", help="Filas incompletas (sin producto o sin marca).")
+    st.progress(min(con_producto / total, 1.0), text=f"Identificación de producto: {con_producto / total:.1%} del total")
+
+    # ---- Registros pendientes de revisión ----
+    df_pendientes = st.session_state.get("df_pendientes")
+    if pendientes > 0 and df_pendientes is not None and len(df_pendientes) > 0:
+        with st.expander(f"🔍 Ver los {pendientes:,} registros pendientes de revisión"):
+            st.caption("Registros donde no se identificó el producto o la marca quedó genérica. Descárgalos para depurar el maestro.")
+            st.dataframe(df_pendientes.head(100), use_container_width=True, hide_index=True)
+            if len(df_pendientes) > 100:
+                st.caption(f"Mostrando 100 de {len(df_pendientes):,} filas. Descarga el Excel para ver todas.")
+            buffer_pend = BytesIO()
+            df_pend_export = sanitizar_dataframe_para_excel(df_pendientes)
+            with pd.ExcelWriter(buffer_pend, engine="openpyxl") as writer:
+                df_pend_export.to_excel(writer, index=False, sheet_name="Pendientes")
+            st.download_button(
+                label="📥 Descargar pendientes (Excel)",
+                data=buffer_pend.getvalue(),
+                file_name=f"Pendientes_{st.session_state.linea_producto}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_descarga_pendientes",
+                use_container_width=True,
+            )
+
+    st.write("") # Espaciador
     
     # Botones de Descarga Amplios
     d1, d2 = st.columns(2)
@@ -293,7 +444,16 @@ if st.session_state.proceso_completado and st.session_state.df_resultado is not 
                 key="btn_descarga_resultado"
             )
 
-    # Vista previa en tabla limpia
+    # Vista previa con filtro de texto
     st.write("") # Espaciador
-    st.markdown("#### Vista Previa de los Datos (Primeras 15 filas)")
-    st.dataframe(st.session_state.df_resultado.head(15), use_container_width=True, hide_index=True)
+    st.markdown("#### 📋 Vista Previa de los Datos")
+    df_resultado = st.session_state.df_resultado
+    filtro = st.text_input("🔎 Filtrar por marca o producto (texto libre)", value="")
+    df_vista = df_resultado
+    if filtro.strip():
+        mask = df_resultado.astype(str).apply(
+            lambda col: col.str.contains(filtro.strip(), case=False, na=False)
+        ).any(axis=1)
+        df_vista = df_resultado[mask]
+    st.caption(f"Mostrando {len(df_vista):,} de {len(df_resultado):,} filas")
+    st.dataframe(df_vista.head(50), use_container_width=True, hide_index=True)
