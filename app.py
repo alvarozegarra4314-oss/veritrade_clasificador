@@ -426,7 +426,33 @@ if procesar:
             # Libera la conexión SQLite de la caché aunque la corrida falle.
             if rescatador is not None:
                 rescatador.cerrar()
-        barra.progress(1.0, text="✅ Clasificación completada")
+
+        # Mensaje final que SIEMPRE explica qué pasó con la Fase 2 (IA),
+        # para que el usuario entienda por qué vio o no vio esa fase:
+        # - IA desactivada -> solo hubo Fase 1.
+        # - Todo salió de caché -> la Fase 2 existió pero fue instantánea.
+        # - Hubo llamadas reales -> se resume cuánto rescató la IA.
+        if rescatador is not None:
+            desde_cache = (
+                rescatador.descripciones_desde_cache_mem
+                + rescatador.descripciones_desde_cache_db
+            )
+            via_api = rescatador.descripciones_rescatadas_api
+            if via_api == 0 and desde_cache == 0:
+                texto_final = "✅ Clasificación completada · Sin pendientes: las reglas resolvieron todo"
+            elif via_api == 0:
+                texto_final = (
+                    f"✅ Clasificación completada · Fase 2/2 resuelta al instante "
+                    f"desde caché ({desde_cache:,} descripciones, sin gastar cuota)"
+                )
+            else:
+                texto_final = (
+                    f"✅ Clasificación completada · IA rescató {via_api:,} descripciones "
+                    f"(+{desde_cache:,} desde caché)"
+                )
+        else:
+            texto_final = "✅ Clasificación completada · Solo reglas deterministas (rescate IA desactivado)"
+        barra.progress(1.0, text=texto_final)
 
         # Guardar en sesión (con trazabilidad de la corrida para el Resumen)
         st.session_state.df_resultado = df_resultado

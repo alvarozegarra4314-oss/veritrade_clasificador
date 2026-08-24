@@ -17,3 +17,4 @@ Maestro_Optimizado.xlsx
 
 # Secretos de Streamlit (API keys)
 .streamlit/secrets.toml
+docs/
