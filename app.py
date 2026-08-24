@@ -47,6 +47,7 @@ from src.maestro.loader import CargarMaestro
 from src.excel_io import sanitizar_dataframe_para_excel
 from src.ia_rescate import RescatadorIA, GENAI_DISPONIBLE
 from src.maestro_optimizer import guardar_maestro_optimizado
+from src.texto_utils import identificar_columnas_descripcion
 
 # ---------------------------------------------------------------------
 # 0. INICIALIZACIÓN DE VARIABLES DE SESIÓN (SESSION STATE)
@@ -132,6 +133,28 @@ def ejecutar_pipeline_reglas_cached(bytes_raw: bytes, bytes_maestro: bytes, hoja
     maestro = CargarMaestro(BytesIO(bytes_maestro))
     return df_raw, maestro
 
+
+@st.cache_data(show_spinner=False)
+def _vista_previa_cruda(bytes_raw: bytes, hoja: str) -> pd.DataFrame:
+    """Encabezados + 5 filas de una hoja. Cacheado para no re-parsear el
+    Excel completo en cada rerun (la validación de columnas corre aquí)."""
+    return pd.read_excel(BytesIO(bytes_raw), sheet_name=hoja, nrows=5)
+
+
+def _mensaje_columnas_no_reconocidas(columnas) -> str:
+    """Mensaje accionable cuando la hoja no tiene columnas de descripción."""
+    lista_cols = ", ".join(map(str, list(columnas)[:15])) + (" ..." if len(columnas) > 15 else "")
+    return (
+        "⚠️ La hoja seleccionada no tiene ninguna columna de descripción reconocible, "
+        "así que no se puede clasificar.\n\n"
+        "**Qué buscamos:** columnas cuyo nombre contenga *DESCRIPCION*, *DETALLE*, "
+        "*MERCADERIA* o *COMMODITY*. Las administrativas (*PARTIDA*, *ARANCEL*, "
+        "*NANDINA*, *SUBPARTIDA*) se ignoran a propósito.\n\n"
+        f"**Columnas encontradas:** {lista_cols}\n\n"
+        "Selecciona otra hoja aquí arriba o verifica que el archivo sea el export "
+        "Veritrade correcto."
+    )
+
 # =====================================================================
 # ENCABEZADO
 # =====================================================================
@@ -173,14 +196,28 @@ with c_raw:
                     )
                     filas_estimadas = info_hojas[idx_default]["filas"]
                     cols_nombradas = info_hojas[idx_default].get("cols_nombradas", 0)
-                    hoja_raw_valida = True
                     st.caption(f"📄 Hoja **{hoja_raw}** — ~{filas_estimadas:,} filas · {cols_nombradas} columnas")
 
-                    # Vista previa rápida del archivo crudo (encabezados + 5 filas)
-                    df_prev = pd.read_excel(BytesIO(archivo_raw.getvalue()), sheet_name=hoja_raw, nrows=5)
-                    with st.expander("👀 Vista previa del archivo crudo"):
-                        st.caption(f"Columnas detectadas: {len(df_prev.columns)}")
-                        st.dataframe(df_prev, use_container_width=True, hide_index=True)
+                    # Validación temprana: la hoja debe tener columnas de
+                    # descripción reconocibles ANTES de permitir procesar.
+                    # Así el usuario descubre el problema aquí y no tras un error.
+                    df_prev = None
+                    try:
+                        df_prev = _vista_previa_cruda(archivo_raw.getvalue(), hoja_raw)
+                    except Exception as e:
+                        st.error(f"No se pudo leer la hoja '{hoja_raw}': {e}")
+
+                    if df_prev is not None:
+                        cols_desc_detectadas = identificar_columnas_descripcion(df_prev.columns)
+                        if cols_desc_detectadas:
+                            hoja_raw_valida = True
+                            st.caption(f"🔎 Columnas de descripción detectadas: **{', '.join(cols_desc_detectadas)}**")
+                            with st.expander("👀 Vista previa del archivo crudo"):
+                                st.caption(f"Columnas detectadas: {len(df_prev.columns)}")
+                                st.dataframe(df_prev, use_container_width=True, hide_index=True)
+                        else:
+                            hoja_raw_valida = False
+                            st.error(_mensaje_columnas_no_reconocidas(df_prev.columns))
                 else:
                     st.error("El archivo no contiene hojas.")
                     hoja_raw = None
@@ -265,30 +302,41 @@ procesar = st.button(
 
 if procesar:
     linea = st.session_state.get("linea_detectada", "Producto")
-    
+
+    # Barra única para TODO el proceso (reglas + rescate IA). Se repinta solo
+    # cuando el avance justifica un refresco (~cada 0.5%) para no penalizar
+    # la velocidad del pipeline con miles de actualizaciones de UI.
+    barra = st.progress(0.0, text="Preparando procesamiento...")
+    _estado_progreso = {"ultimo_pct": -1.0}
+
+    def _actualizar_progreso(fase, i, total):
+        if not total or total <= 0:
+            return
+        pct = min(i / total, 1.0)
+        if pct < 1.0 and pct - _estado_progreso["ultimo_pct"] < 0.005:
+            return
+        _estado_progreso["ultimo_pct"] = pct
+        if fase == "reglas":
+            texto = f"Fase 1/2 · Reglas deterministas: {i:,} de {total:,} filas"
+        else:
+            texto = f"Fase 2/2 · Rescate con IA: {i:,} de {total:,} descripciones únicas"
+        barra.progress(pct, text=texto)
+
     try:
         archivo_raw.seek(0)
 
-        with st.spinner("Aplicando reglas deterministas..."):
-            df_raw, maestro = ejecutar_pipeline_reglas_cached(
-                archivo_raw.getvalue(), maestro_bytes, hoja_raw
-            )
+        df_raw, maestro = ejecutar_pipeline_reglas_cached(
+            archivo_raw.getvalue(), maestro_bytes, hoja_raw
+        )
 
         rescatador = None
         if usar_ia and api_key:
             rescatador = RescatadorIA(api_key=api_key, maestro=maestro, rpm_limite=rpm_limite)
-            bar_ia = st.progress(0.0, text="Preparando rescate por IA...")
 
-            def _actualizar_progreso(fase, i, total):
-                bar_ia.progress(min(i / total, 1.0), text=f"Rescatando con IA: {i}/{total} descripciones únicas")
-
-            df_resultado = procesar_dataframe_dinamico(
-                df_raw, maestro, rescatador_ia=rescatador, progreso_callback=_actualizar_progreso
-            )
-            bar_ia.empty()
-        else:
-            with st.spinner("Procesando clasificación dinámica..."):
-                df_resultado = procesar_dataframe_dinamico(df_raw, maestro)
+        df_resultado = procesar_dataframe_dinamico(
+            df_raw, maestro, rescatador_ia=rescatador, progreso_callback=_actualizar_progreso
+        )
+        barra.progress(1.0, text="✅ Clasificación completada")
 
         # Guardar en sesión
         st.session_state.df_resultado = df_resultado
@@ -350,9 +398,18 @@ if procesar:
             df_export.to_excel(writer, index=False, sheet_name="Clasificacion")
         st.session_state.df_export_data = output_buffer.getvalue()
 
+    except ValueError as e:
+        # Errores de validación (ej. columnas de descripción no reconocidas):
+        # el mensaje ya viene redactado para el usuario final.
+        barra.empty()
+        st.error(f"❌ No se pudo procesar el archivo:\n\n{e}")
     except Exception as e:
-        st.error(f"❌ Ocurrió un error: {e}")
-        st.exception(e)
+        barra.empty()
+        st.error(f"❌ No se pudo completar la clasificación. Detalle: {e}")
+        with st.expander("🛠️ Detalles técnicos (compartir con soporte)"):
+            st.exception(e)
+    finally:
+        barra.empty()
 
 # =====================================================================
 # SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)

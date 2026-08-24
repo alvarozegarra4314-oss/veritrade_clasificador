@@ -3,3 +3,17 @@ venv/
 __pycache__/
 *.pyc
 .vscode/
+
+# ---------------------------------------------------------------------
+# DATOS DE NEGOCIO Y SALIDAS — no versionar (información sensible/voluminosa)
+# El maestro incluido se distribuye por el canal acordado, no por git.
+# ---------------------------------------------------------------------
+data/
+output/
+Maestro_Optimizado.xlsx
+
+# Caché local de rescate IA
+*.sqlite
+
+# Secretos de Streamlit (API keys)
+.streamlit/secrets.toml

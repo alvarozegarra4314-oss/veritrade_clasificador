@@ -37,11 +37,28 @@ def procesar_dataframe_dinamico(
     Si es None, el pipeline se comporta exactamente igual que antes
     (100% determinista, sin llamadas de red).
     progreso_callback(fase: str, i: int, total: int): opcional, para alimentar
-    una barra de progreso en Streamlit durante la fase de rescate IA.
+    una barra de progreso en Streamlit. Se emiten dos fases:
+      - "reglas": avance fila a fila del motor determinista (fase 1).
+      - "rescate_ia": avance sobre descripciones únicas pendientes (fase 2).
+    Lanza ValueError con mensaje accionable si el archivo no tiene columnas
+    de descripción reconocibles.
     """
     maestro = ruta_maestro if isinstance(ruta_maestro, CargarMaestro) else CargarMaestro(ruta_maestro)
 
     cols_desc = identificar_columnas_descripcion(df_raw.columns)
+    if not cols_desc:
+        # Error accionable para el usuario final: sin columnas de descripción
+        # el pipeline no puede trabajar. Nunca debe llegar a un IndexError.
+        raise ValueError(
+            "El archivo no contiene ninguna columna de descripción reconocible.\n\n"
+            "La herramienta busca columnas cuyo nombre incluya: DESCRIPCION, DETALLE, "
+            "MERCADERIA o COMMODITY (se ignoran las administrativas como PARTIDA, "
+            "ARANCEL, NANDINA, SUBPARTIDA).\n\n"
+            f"Columnas encontradas en la hoja: {', '.join(map(str, df_raw.columns[:15]))}"
+            + (" ..." if len(df_raw.columns) > 15 else "")
+            + "\n\nVerifica que subiste el archivo Veritrade correcto y selecciona la "
+              "hoja de datos (no una hoja auxiliar)."
+        )
     cols_indices = [df_raw.columns.get_loc(c) for c in cols_desc]
 
     var_principal = maestro.variable_producto_principal
@@ -56,6 +73,7 @@ def procesar_dataframe_dinamico(
     pendientes_rescate = []  # lista de (idx_resultado, desc_clean)
     descripciones_unicas_pendientes = set()
 
+    total_filas = len(df_raw)
     for row in df_raw.itertuples(index=False):
         # 1. Unir todas las columnas de descripción para características y marcas por diccionario
         textos_desc = [str(row[i]) for i in cols_indices if pd.notna(row[i])]
@@ -124,6 +142,11 @@ def procesar_dataframe_dinamico(
 
         idx_actual = len(resultados)
         resultados.append(res)
+
+        # Progreso de la fase de reglas (fase "reglas"). Se reporta cada fila;
+        # el callback en la UI se auto-limita para no repintar la barra en vano.
+        if progreso_callback:
+            progreso_callback("reglas", idx_actual + 1, total_filas)
 
         if rescatador_ia is not None and _fila_necesita_rescate(marca, cat_vals, var_principal):
             pendientes_rescate.append((idx_actual, desc_clean))
