@@ -2,6 +2,7 @@ import sys
 import warnings
 from pathlib import Path
 from io import BytesIO
+from datetime import datetime
 import pandas as pd
 import streamlit as st
 
@@ -17,14 +18,15 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="google.generat
 st.markdown("""
 <style>
     /* Estilizar el botón principal de procesar */
-    .stButton>button[kind="primary"] {
+    .stButton>button[kind="primary"],
+    div[data-testid="stBaseButton-primary"] {
         height: 3.5rem;
         font-size: 1.2rem;
         font-weight: bold;
         border-radius: 0.5rem;
     }
-    /* Darle un fondo suave a las métricas para que parezcan tarjetas */
-    div[data-testid="metric-container"] {
+    /* Tarjetas suaves para las métricas (testid vigente en Streamlit >= 1.29) */
+    div[data-testid="stMetric"] {
         background-color: #f8fafc;
         border: 1px solid #e2e8f0;
         padding: 1rem;
@@ -48,6 +50,8 @@ from src.excel_io import sanitizar_dataframe_para_excel
 from src.ia_rescate import RescatadorIA, GENAI_DISPONIBLE
 from src.maestro_optimizer import guardar_maestro_optimizado
 from src.texto_utils import identificar_columnas_descripcion
+from src.excel_estilos import aplicar_estilo_hoja_excel
+from src import config
 
 # ---------------------------------------------------------------------
 # 0. INICIALIZACIÓN DE VARIABLES DE SESIÓN (SESSION STATE)
@@ -70,6 +74,12 @@ if "df_pendientes" not in st.session_state:
     st.session_state.df_pendientes = None
 if "linea_detectada" not in st.session_state:
     st.session_state.linea_detectada = "Producto"
+if "archivo_origen" not in st.session_state:
+    st.session_state.archivo_origen = ""
+if "hoja_origen" not in st.session_state:
+    st.session_state.hoja_origen = ""
+if "modelo_ia_usado" not in st.session_state:
+    st.session_state.modelo_ia_usado = ""
 
 def _obtener_api_key_de_secrets() -> str:
     try:
@@ -77,11 +87,38 @@ def _obtener_api_key_de_secrets() -> str:
     except Exception:
         return ""
 
+
+@st.cache_data(show_spinner=False)
+def _probar_api_key(api_key: str, modelo: str):
+    """Llamada mínima a Gemini para validar la key ANTES de una corrida larga.
+    Devuelve (ok: bool, detalle: str). Cacheada por (key, modelo) para no
+    repetir la llamada si el usuario vuelve a pulsar con los mismos valores."""
+    try:
+        from google import genai
+        cliente = genai.Client(api_key=api_key)
+        respuesta = cliente.models.generate_content(
+            model=modelo,
+            contents="Responde únicamente con la palabra OK.",
+        )
+        texto = (respuesta.text or "").strip()
+        return True, f"✅ Conexión exitosa con **{modelo}**. El modelo respondió: '{texto[:20]}'"
+    except Exception as e:
+        detalle = str(e)
+        if "429" in detalle or "quota" in detalle.lower():
+            detalle += "\n\nLa key es válida pero no tiene cuota disponible en este momento."
+        return False, f"❌ No se pudo conectar con **{modelo}**: {detalle}"
+
 # Valores que el motor considera "marca sin resolver" (defaults del maestro)
 VALORES_MARCA_SIN_RESOLVER = {
     "MARCA GENERICA", "MARCA PRINCIPAL", "MARCA COMPONENTES",
     "S/M", "SIN MARCA", "GENERICO", "NO APLICA",
 }
+
+# El filtro de texto solo escanea columnas relevantes (descripciones, marcas,
+# producto/modelo) en vez de TODAS las columnas del archivo: pasa de segundos
+# por tecla a milisegundos en archivos grandes.
+COLS_BUSQUEDA_FILTRO = ("DESCRIPCION", "MARCA", "PRODUCTO", "MODELO", "SERIE")
+FILAS_VISTA_PREVIA = 200
 
 
 @st.cache_data(show_spinner=False)
@@ -214,7 +251,7 @@ with c_raw:
                             st.caption(f"🔎 Columnas de descripción detectadas: **{', '.join(cols_desc_detectadas)}**")
                             with st.expander("👀 Vista previa del archivo crudo"):
                                 st.caption(f"Columnas detectadas: {len(df_prev.columns)}")
-                                st.dataframe(df_prev, use_container_width=True, hide_index=True)
+                                st.dataframe(df_prev, width="stretch", hide_index=True)
                         else:
                             hoja_raw_valida = False
                             st.error(_mensaje_columnas_no_reconocidas(df_prev.columns))
@@ -271,21 +308,54 @@ with st.container(border=True):
     st.caption("Delega a Gemini el análisis de las descripciones que el motor de reglas no logre resolver. *(Opcional pero recomendado)*.")
     
     if not GENAI_DISPONIBLE:
-        st.error("⚠️ El paquete 'google-generativeai' no está instalado.")
+        st.error("⚠️ El paquete 'google-genai' no está instalado. Instálalo con: pip install google-genai")
         usar_ia = False
         api_key = ""
+        modelo_ia = config.MODELO_IA_DEFAULT
     else:
-        usar_ia = st.toggle("Activar motor de rescate (Gemini 3.1 Flash Lite)", value=False)
-        
+        usar_ia = st.toggle(
+            f"Activar motor de rescate por IA (Gemini · {config.MODELO_IA_DEFAULT})",
+            value=False,
+        )
+
         api_key = None
+        modelo_ia = config.MODELO_IA_DEFAULT
         if usar_ia:
-            c_key, c_rpm = st.columns(2)
+            c_key, c_rpm = st.columns([2, 1])
             with c_key:
-                api_key = st.text_input("API Key", type="password", value=_obtener_api_key_de_secrets())
+                api_key = st.text_input(
+                    "API Key",
+                    type="password",
+                    value=_obtener_api_key_de_secrets(),
+                    help="Se toma de .streamlit/secrets.toml si existe; si no, pégala aquí.",
+                )
                 if not api_key:
                     st.warning("Se requiere API Key de Gemini.")
             with c_rpm:
                 rpm_limite = st.slider("Límite de Peticiones (RPM)", min_value=1, max_value=60, value=12)
+
+            c_modelo, c_test = st.columns([2, 1])
+            with c_modelo:
+                modelo_ia = st.selectbox(
+                    "Modelo de IA",
+                    config.MODELOS_IA_DISPONIBLES,
+                    index=config.MODELOS_IA_DISPONIBLES.index(config.MODELO_IA_DEFAULT),
+                    help="Si Google retira o renombra un modelo, elige otro de la lista sin cambiar código.",
+                )
+            with c_test:
+                st.write("")  # alinear con el selectbox
+                probar_conexion = st.button("🔌 Probar conexión", width="stretch")
+
+            if probar_conexion:
+                if api_key:
+                    with st.spinner("Probando conexión con Gemini..."):
+                        ok, detalle = _probar_api_key(api_key, modelo_ia)
+                    if ok:
+                        st.success(detalle)
+                    else:
+                        st.error(detalle)
+                else:
+                    st.warning("Ingresa una API Key primero.")
 
 # =====================================================================
 # SECCIÓN 3: ACCIÓN PRINCIPAL (PROCESAMIENTO)
@@ -296,7 +366,7 @@ listo_para_procesar = (archivo_raw and maestro_bytes and hoja_raw_valida and (no
 procesar = st.button(
     "▶️ PROCESAR CLASIFICACIÓN", 
     type="primary", 
-    use_container_width=True, 
+    width="stretch",
     disabled=not listo_para_procesar
 )
 
@@ -306,8 +376,11 @@ if procesar:
     # Barra única para TODO el proceso (reglas + rescate IA). Se repinta solo
     # cuando el avance justifica un refresco (~cada 0.5%) para no penalizar
     # la velocidad del pipeline con miles de actualizaciones de UI.
+    # Incluye ETA (tiempo restante estimado) para que el usuario sepa cuánto
+    # falta en vez de descubrirlo esperando.
+    import time as _time
     barra = st.progress(0.0, text="Preparando procesamiento...")
-    _estado_progreso = {"ultimo_pct": -1.0}
+    _estado_progreso = {"ultimo_pct": -1.0, "t_inicio": None}
 
     def _actualizar_progreso(fase, i, total):
         if not total or total <= 0:
@@ -315,11 +388,21 @@ if procesar:
         pct = min(i / total, 1.0)
         if pct < 1.0 and pct - _estado_progreso["ultimo_pct"] < 0.005:
             return
+        if _estado_progreso["t_inicio"] is None:
+            _estado_progreso["t_inicio"] = _time.monotonic()
         _estado_progreso["ultimo_pct"] = pct
+
+        eta_txt = ""
+        if 0.05 <= pct < 1.0:
+            transcurrido = _time.monotonic() - _estado_progreso["t_inicio"]
+            restante = transcurrido / pct * (1 - pct)
+            mins, segs = divmod(int(restante + 0.5), 60)
+            eta_txt = f" · faltan ~{f'{mins}m {segs:02d}s' if mins else f'{segs}s'}"
+
         if fase == "reglas":
-            texto = f"Fase 1/2 · Reglas deterministas: {i:,} de {total:,} filas"
+            texto = f"Fase 1/2 · Reglas deterministas: {i:,} de {total:,} filas{eta_txt}"
         else:
-            texto = f"Fase 2/2 · Rescate con IA: {i:,} de {total:,} descripciones únicas"
+            texto = f"Fase 2/2 · Rescate con IA: {i:,} de {total:,} descripciones únicas{eta_txt}"
         barra.progress(pct, text=texto)
 
     try:
@@ -331,17 +414,29 @@ if procesar:
 
         rescatador = None
         if usar_ia and api_key:
-            rescatador = RescatadorIA(api_key=api_key, maestro=maestro, rpm_limite=rpm_limite)
+            rescatador = RescatadorIA(
+                api_key=api_key, maestro=maestro, rpm_limite=rpm_limite, modelo=modelo_ia
+            )
 
-        df_resultado = procesar_dataframe_dinamico(
-            df_raw, maestro, rescatador_ia=rescatador, progreso_callback=_actualizar_progreso
-        )
+        try:
+            df_resultado = procesar_dataframe_dinamico(
+                df_raw, maestro, rescatador_ia=rescatador, progreso_callback=_actualizar_progreso
+            )
+        finally:
+            # Libera la conexión SQLite de la caché aunque la corrida falle.
+            if rescatador is not None:
+                rescatador.cerrar()
         barra.progress(1.0, text="✅ Clasificación completada")
 
-        # Guardar en sesión
+        # Guardar en sesión (con trazabilidad de la corrida para el Resumen)
         st.session_state.df_resultado = df_resultado
         st.session_state.linea_producto = linea
         st.session_state.proceso_completado = True
+        st.session_state.archivo_origen = archivo_raw.name
+        st.session_state.hoja_origen = hoja_raw
+        st.session_state.modelo_ia_usado = (
+            f"Reglas + IA ({modelo_ia})" if rescatador is not None else "Reglas deterministas (sin IA)"
+        )
 
         # ---- KPIs + Cobertura del análisis ----
         total_filas = len(df_resultado)
@@ -391,11 +486,40 @@ if procesar:
 
         st.session_state.kpis = kpis
 
-        # Buffer del resultado final
+        # ---- Buffer del resultado final: hoja Resumen + Clasificacion con formato ----
+        # El Resumen da trazabilidad de la corrida (qué archivo, cuándo, con qué
+        # motor y qué cobertura tuvo), de modo que el Excel descargado se
+        # explica por sí solo sin depender de la memoria del usuario.
         df_export = sanitizar_dataframe_para_excel(df_resultado)
+        cobertura_pct = f"{kpis['con_producto'] / max(total_filas, 1):.1%}"
+        df_resumen = pd.DataFrame([
+            ("Fecha de proceso", datetime.now().strftime("%Y-%m-%d %H:%M")),
+            ("Archivo origen", st.session_state.get("archivo_origen", "")),
+            ("Hoja procesada", str(st.session_state.get("hoja_origen", ""))),
+            ("Línea de producto", linea),
+            ("Motor de clasificación", st.session_state.get("modelo_ia_usado", "")),
+            ("Total de filas", f"{kpis['total']:,}"),
+            ("Con producto identificado", f"{kpis['con_producto']:,} ({cobertura_pct})"),
+            ("Sin producto identificado", f"{kpis['sin_producto']:,}"),
+            ("Sin marca (genérica)", f"{kpis['sin_marca']:,}"),
+            ("Pendientes de revisión", f"{kpis['pendientes']:,}"),
+            ("Rescatados por IA", f"{kpis['rescatados']:,}"),
+            ("Resueltos desde caché IA (ahorro)", f"{kpis['cache']:,}"),
+            ("Nuevas reglas aprendidas", f"+{kpis['nuevas']}"),
+            ("Errores de IA", f"{kpis['errores']:,}"),
+        ], columns=["Parametro", "Valor"])
+
         output_buffer = BytesIO()
         with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
+            df_resumen.to_excel(writer, index=False, sheet_name="Resumen")
             df_export.to_excel(writer, index=False, sheet_name="Clasificacion")
+            for nombre_hoja, df_hoja in (("Resumen", df_resumen), ("Clasificacion", df_export)):
+                try:
+                    aplicar_estilo_hoja_excel(writer.sheets[nombre_hoja], df_hoja)
+                except Exception:
+                    # Si la tabla nativa falla (ej. columnas duplicadas del
+                    # archivo crudo), el Excel igual se entrega legible.
+                    pass
         st.session_state.df_export_data = output_buffer.getvalue()
 
     except ValueError as e:
@@ -457,20 +581,25 @@ if st.session_state.proceso_completado and st.session_state.df_resultado is not 
     if pendientes > 0 and df_pendientes is not None and len(df_pendientes) > 0:
         with st.expander(f"🔍 Ver los {pendientes:,} registros pendientes de revisión"):
             st.caption("Registros donde no se identificó el producto o la marca quedó genérica. Descárgalos para depurar el maestro.")
-            st.dataframe(df_pendientes.head(100), use_container_width=True, hide_index=True)
+            st.dataframe(df_pendientes.head(100), width="stretch", hide_index=True)
             if len(df_pendientes) > 100:
                 st.caption(f"Mostrando 100 de {len(df_pendientes):,} filas. Descarga el Excel para ver todas.")
             buffer_pend = BytesIO()
             df_pend_export = sanitizar_dataframe_para_excel(df_pendientes)
             with pd.ExcelWriter(buffer_pend, engine="openpyxl") as writer:
                 df_pend_export.to_excel(writer, index=False, sheet_name="Pendientes")
+                try:
+                    aplicar_estilo_hoja_excel(writer.sheets["Pendientes"], df_pend_export)
+                except Exception:
+                    pass
+            sufijo_fecha = datetime.now().strftime("%Y-%m-%d")
             st.download_button(
                 label="📥 Descargar pendientes (Excel)",
                 data=buffer_pend.getvalue(),
-                file_name=f"Pendientes_{st.session_state.linea_producto}.xlsx",
+                file_name=f"Pendientes_{st.session_state.linea_producto}_{sufijo_fecha}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="btn_descarga_pendientes",
-                use_container_width=True,
+                width="stretch",
             )
 
     st.write("") # Espaciador
@@ -484,33 +613,43 @@ if st.session_state.proceso_completado and st.session_state.df_resultado is not 
                 data=st.session_state.maestro_opt_data,
                 file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                width="stretch",
                 key="btn_descarga_maestro"
             )
         else:
-            st.button("🧠 Maestro Optimizado (Sin aprendizajes nuevos)", disabled=True, use_container_width=True)
+            st.button("🧠 Maestro Optimizado (Sin aprendizajes nuevos)", disabled=True, width="stretch")
             
     with d2:
         if st.session_state.df_export_data is not None:
             st.download_button(
                 label=f"📊 Descargar Resultado (Excel)",
                 data=st.session_state.df_export_data,
-                file_name=f"Resultado_{st.session_state.linea_producto}.xlsx",
+                file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                width="stretch",
                 key="btn_descarga_resultado"
             )
 
-    # Vista previa con filtro de texto
+    # Vista previa con filtro de texto (solo columnas relevantes -> rápido)
     st.write("") # Espaciador
     st.markdown("#### 📋 Vista Previa de los Datos")
     df_resultado = st.session_state.df_resultado
-    filtro = st.text_input("🔎 Filtrar por marca o producto (texto libre)", value="")
+    filtro = st.text_input("🔎 Filtrar por descripción, marca o producto (texto libre)", value="")
     df_vista = df_resultado
     if filtro.strip():
-        mask = df_resultado.astype(str).apply(
+        cols_filtro = [
+            c for c in df_resultado.columns
+            if any(k in str(c).upper() for k in COLS_BUSQUEDA_FILTRO)
+        ]
+        if not cols_filtro:  # archivo con nombres atípicos: usar las primeras columnas
+            cols_filtro = list(df_resultado.columns[:6])
+        mask = df_resultado[cols_filtro].astype(str).apply(
             lambda col: col.str.contains(filtro.strip(), case=False, na=False)
         ).any(axis=1)
         df_vista = df_resultado[mask]
-    st.caption(f"Mostrando {len(df_vista):,} de {len(df_resultado):,} filas")
-    st.dataframe(df_vista.head(50), use_container_width=True, hide_index=True)
+    n_mostradas = min(len(df_vista), FILAS_VISTA_PREVIA)
+    st.caption(
+        f"Mostrando {n_mostradas:,} de {len(df_vista):,} filas coincidentes "
+        f"(total del archivo: {len(df_resultado):,})"
+    )
+    st.dataframe(df_vista.head(FILAS_VISTA_PREVIA), width="stretch", hide_index=True)

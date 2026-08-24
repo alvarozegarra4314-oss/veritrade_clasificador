@@ -8,8 +8,16 @@ import numpy as np
 
 def limpiar_texto(texto: str) -> str:
     """Normaliza y remueve tildes/caracteres especiales, devolviendo texto en mayúsculas."""
-    if not texto or pd.isna(texto):
+    # Ojo con el orden: `not pd.NA` lanza TypeError ("boolean value of NA is
+    # ambiguous"), así que los faltantes se detectan ANTES de evaluar verdad.
+    if texto is None:
         return ""
+    if not isinstance(texto, str):
+        try:
+            if pd.isna(texto):
+                return ""
+        except (TypeError, ValueError):
+            return ""  # no-escalar (lista, etc.) se trata como vacío
     texto_str = str(texto)
     nfkd_form = unicodedata.normalize('NFKD', texto_str)
     sin_tildes = "".join([c for c in nfkd_form if not unicodedata.combining(c)])

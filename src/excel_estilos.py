@@ -74,6 +74,15 @@ def aplicar_estilo_hoja_excel(ws, df: pd.DataFrame, es_log: bool = False) -> Non
     n_filas = len(df)
     n_cols = len(df.columns)
 
+    # En hojas grandes el relleno/borde celda a celda es O(filas*cols) y puede
+    # tardar decenas de segundos (ej. resultado de clasificación con miles de
+    # filas). El fondo blanco ya está garantizado al desactivar gridlines y por
+    # el estilo de tabla nativa, así que en hojas grandes se omite ese paso sin
+    # perder el acabado visual (encabezado, tabla, filtros y paneles congelados
+    # se aplican igual).
+    UMBRAL_RELLENO_CELDA_A_CELDA = 2000
+    aplicar_cuerpo = n_filas <= UMBRAL_RELLENO_CELDA_A_CELDA
+
     # 1. Desactivar líneas de cuadrícula para un aspecto limpio y profesional
     ws.sheet_view.showGridLines = False
 
@@ -88,26 +97,27 @@ def aplicar_estilo_hoja_excel(ws, df: pd.DataFrame, es_log: bool = False) -> Non
     ws.freeze_panes = "A2"
     ws.row_dimensions[1].height = 24
 
-    # 3. Filas de datos
+    # 3. Filas de datos (solo en hojas chicas; en grandes se omite por rendimiento)
     col_estado_idx = None
     if es_log and "Estado" in df.columns:
         col_estado_idx = list(df.columns).index("Estado") + 1
 
-    for fila_idx in range(2, n_filas + 2):
-        color_fila = None
-        if col_estado_idx:
-            estado_val = ws.cell(row=fila_idx, column=col_estado_idx).value
-            color_fila = _color_fila_log(estado_val)
+    if aplicar_cuerpo:
+        for fila_idx in range(2, n_filas + 2):
+            color_fila = None
+            if col_estado_idx:
+                estado_val = ws.cell(row=fila_idx, column=col_estado_idx).value
+                color_fila = _color_fila_log(estado_val)
 
-        # Si no tiene un color especial de log, el fondo es blanco limpio
-        if color_fila is None:
-            color_fila = COLOR_BODY_BG
+            # Si no tiene un color especial de log, el fondo es blanco limpio
+            if color_fila is None:
+                color_fila = COLOR_BODY_BG
 
-        for col_idx in range(1, n_cols + 1):
-            celda = ws.cell(row=fila_idx, column=col_idx)
-            celda.border = _BORDE_CELDA
-            celda.alignment = Alignment(vertical="center", wrap_text=False)
-            celda.fill = PatternFill("solid", fgColor=color_fila)
+            for col_idx in range(1, n_cols + 1):
+                celda = ws.cell(row=fila_idx, column=col_idx)
+                celda.border = _BORDE_CELDA
+                celda.alignment = Alignment(vertical="center", wrap_text=False)
+                celda.fill = PatternFill("solid", fgColor=color_fila)
 
     # 4. Autofiltro solo para hojas de datos. Las instrucciones no son una
     # tabla y no deben llevar filtros ni referencias de tabla.

@@ -57,3 +57,15 @@ SHEET_CONDICIONALES = "5_Condicionales"
 COL_DESCRIPCION = "Descripcion Comercial"
 COL_PATRON = "Patrón detectado en texto"
 COL_MARCA_STD = "Marca estandarizada"
+
+# ---------------------------------------------------------------------
+# IA de rescate (Gemini) — SDK google-genai
+# Si Google retira o renombra un modelo, se cambia aquí (o en la UI)
+# sin tocar código del motor.
+# ---------------------------------------------------------------------
+MODELO_IA_DEFAULT = "gemini-3.1-flash-lite"
+MODELOS_IA_DISPONIBLES = [
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+]

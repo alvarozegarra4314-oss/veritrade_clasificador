@@ -33,23 +33,31 @@ import json
 import time
 import random
 import logging
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
 
 from src.cache_ia import CacheIA
+from src.config import MODELO_IA_DEFAULT
 
 logger = logging.getLogger("ia_rescate")
 
 try:
-    import google.generativeai as genai
-    from google.api_core import exceptions as google_exceptions
+    # SDK actual de Google (el paquete google-generativeai está deprecado
+    # y sin soporte desde 2025 — ver README del repo google-gemini).
+    from google import genai
+    from google.genai import types as genai_types
+    from google.genai import errors as genai_errors
     GENAI_DISPONIBLE = True
 except ImportError:  # La librería es opcional: el pipeline debe seguir funcionando sin IA
     GENAI_DISPONIBLE = False
-    google_exceptions = None
+    genai = None
+    genai_types = None
+    genai_errors = None
 
 
-MODELO_IA = "gemini-3.1-flash-lite"
+# Modelo por defecto centralizado en src/config.py (editable ahí o desde la UI).
+MODELO_IA = MODELO_IA_DEFAULT
 # Se incrementa cada vez que cambia PROMPT_SISTEMA (o el orden del prompt
 # de usuario) de forma que afecte los VALORES extraídos. Se concatena al
 # nombre del modelo para formar la clave de caché (ver CacheIA._clave),
@@ -212,7 +220,7 @@ class RescatadorIA:
         temperatura: float = 0.0,
         rpm_limite: int = 12,
         batch_size: int = BATCH_SIZE_DEFAULT,
-        ruta_cache_db: str = "data/cache_ia.sqlite",
+        ruta_cache_db: str | Path | None = None,
         usar_cache_persistente: bool = True,
     ):
         """
@@ -231,14 +239,15 @@ class RescatadorIA:
         """
         if not GENAI_DISPONIBLE:
             raise RuntimeError(
-                "El paquete 'google-generativeai' no está instalado. "
-                "Agrega 'google-generativeai' a requirements.txt para usar el rescate por IA."
+                "El paquete 'google-genai' no está instalado. "
+                "Agrega 'google-genai' a requirements.txt para usar el rescate por IA."
             )
 
-        genai.configure(api_key=api_key)
+        # SDK nuevo: cliente por instancia (sin estado global como el
+        # genai.configure() del paquete deprecado).
+        self.client = genai.Client(api_key=api_key)
 
         self.maestro = maestro
-        self.modelo_nombre = modelo
         # Clave de caché real: incluye la versión de prompt para que un
         # cambio de PROMPT_SISTEMA invalide automáticamente el caché viejo.
         self._modelo_cache_key = f"{modelo}::{PROMPT_VERSION}"
@@ -249,22 +258,36 @@ class RescatadorIA:
 
         self._schema_lote = _construir_schema_lote(self.variables_cat, self.variables_pot)
 
-        self.model = genai.GenerativeModel(
-            model_name=modelo,
+        # Config de generación reutilizable: JSON estricto con el schema del
+        # lote. En el SDK nuevo el system prompt vive AQUÍ (antes iba en
+        # GenerativeModel); perderlo cambiaría por completo la conducta del modelo.
+        # AFC (function calling automático) se desactiva: este flujo es de
+        # salida JSON estructurada pura y el SDK recomienda no usar AFC directo
+        # en Models.generate_content.
+        self._generation_config = genai_types.GenerateContentConfig(
             system_instruction=PROMPT_SISTEMA,
-            generation_config=genai.types.GenerationConfig(
-                temperature=temperatura,
-                response_mime_type="application/json",
-                response_schema=self._schema_lote,
-            ),
+            temperature=temperatura,
+            response_mime_type="application/json",
+            response_schema=self._schema_lote,
+            automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
         )
+
+        self.modelo_nombre = modelo
 
         # Capa 0: caché en memoria (vida = duración del proceso/sesión Streamlit)
         self._cache_mem: dict[str, ResultadoRescateIA] = {}
 
-        # Capa 1: caché persistente en disco (vive entre corridas y sesiones)
+        # Capa 1: caché persistente en disco (vive entre corridas y sesiones).
+        # Ruta ABSOLUTA anclada a la raíz del proyecto: si la app se lanza
+        # desde otra carpeta, la caché relativa al CWD crearía un SQLite nuevo
+        # y el usuario perdería todo el ahorro de cuota acumulado.
         self.usar_cache_persistente = usar_cache_persistente
-        self._cache_db = CacheIA(ruta_cache_db) if usar_cache_persistente else None
+        if usar_cache_persistente:
+            if ruta_cache_db is None:
+                ruta_cache_db = Path(__file__).resolve().parent.parent / "data" / "cache_ia.sqlite"
+            self._cache_db = CacheIA(ruta_cache_db)
+        else:
+            self._cache_db = None
 
         # Rate limiting propio: espaciamos llamadas (por LOTE) según rpm_limite
         self._rpm_limite = max(1, rpm_limite)
@@ -373,7 +396,11 @@ class RescatadorIA:
             self._esperar_rate_limit()
             try:
                 self.llamadas_realizadas += 1
-                respuesta = self.model.generate_content(prompt)
+                respuesta = self.client.models.generate_content(
+                    model=self.modelo_nombre,
+                    contents=prompt,
+                    config=self._generation_config,
+                )
                 data = json.loads(respuesta.text)
 
                 if not isinstance(data, list):
@@ -386,23 +413,25 @@ class RescatadorIA:
                         mapeado[idx] = item
                 return mapeado
 
-            except google_exceptions.ResourceExhausted as e:
-                # 429 - cuota / rate limit: backoff exponencial + jitter
-                espera = min(60, (2 ** intento) + random.uniform(0, 1))
-                logger.warning(
-                    "Cuota de Gemini excedida en lote de %s (intento %s/%s). "
-                    "Reintentando en %.1fs. Detalle: %s",
-                    len(descripciones), intento, self.max_reintentos, espera, e,
-                )
-                self.ultimo_error_detalle = f"429 ResourceExhausted: {e}"
-                time.sleep(espera)
-                continue
+            except genai_errors.APIError as e:
+                codigo = getattr(e, "code", None)
 
-            except google_exceptions.GoogleAPIError as e:
-                logger.error("Error de API de Gemini: %s", e)
+                if codigo == 429:
+                    # 429 - cuota / rate limit: backoff exponencial + jitter
+                    espera = min(60, (2 ** intento) + random.uniform(0, 1))
+                    logger.warning(
+                        "Cuota de Gemini excedida en lote de %s (intento %s/%s). "
+                        "Reintentando en %.1fs. Detalle: %s",
+                        len(descripciones), intento, self.max_reintentos, espera, e,
+                    )
+                    self.ultimo_error_detalle = f"429 ResourceExhausted: {e}"
+                    time.sleep(espera)
+                    continue
+
+                logger.error("Error de API de Gemini (codigo %s): %s", codigo, e)
                 self.errores += 1
                 self.errores_api += 1
-                self.ultimo_error_detalle = f"GoogleAPIError: {e}"
+                self.ultimo_error_detalle = f"APIError {codigo}: {e}"
                 self._registrar_error_detalle(descripciones, str(e))
                 # Errores de API "duros" (no cuota) también ameritan un
                 # reintento breve por si es un problema transitorio de red.

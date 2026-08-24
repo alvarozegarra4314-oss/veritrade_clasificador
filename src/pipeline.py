@@ -74,6 +74,14 @@ def procesar_dataframe_dinamico(
     descripciones_unicas_pendientes = set()
 
     total_filas = len(df_raw)
+
+    # Memoización por (desc_full, desc_1): los archivos Veritrade repiten
+    # muchísimo las mismas descripciones comerciales. Calcular las reglas UNA
+    # sola vez por combinación única recorta drásticamente la fase 1 en
+    # archivos grandes. Todas las funciones involucradas son deterministas
+    # (regex sobre el mismo texto), así que el resultado es idéntico fila a fila.
+    cache_reglas = {}
+
     for row in df_raw.itertuples(index=False):
         # 1. Unir todas las columnas de descripción para características y marcas por diccionario
         textos_desc = [str(row[i]) for i in cols_indices if pd.notna(row[i])]
@@ -84,28 +92,49 @@ def procesar_dataframe_dinamico(
         desc_1_raw = str(row[cols_indices[0]]) if cols_indices and pd.notna(row[cols_indices[0]]) else ""
         desc_1_clean = limpiar_texto(desc_1_raw)
 
-        # 3. Extraer marca pasando desc_clean (para dict/regex) y desc_1_clean (para posición 2 por coma)
-        marca, fuente = extraer_marca(desc_clean, maestro, desc_1_clean=desc_1_clean)
+        clave_cache = (desc_clean, desc_1_clean)
+        calculado = cache_reglas.get(clave_cache)
+        if calculado is None:
+            # 3. Extraer marca pasando desc_clean (para dict/regex) y desc_1_clean (para posición 2 por coma)
+            marca, fuente = extraer_marca(desc_clean, maestro, desc_1_clean=desc_1_clean)
 
-        # 3b. Extracción posicional pura desde Descripcion 1 (SOLO esa columna):
-        #     posición 1 = producto y specs técnicas, posición 3 = modelo/serie comercial
-        producto_texto_desc1, modelo_serie_desc1 = extraer_producto_y_modelo_desc1(desc_1_clean)
+            # 3b. Extracción posicional pura desde Descripcion 1 (SOLO esa columna):
+            #     posición 1 = producto y specs técnicas, posición 3 = modelo/serie comercial
+            producto_texto_desc1, modelo_serie_desc1 = extraer_producto_y_modelo_desc1(desc_1_clean)
 
-        cat_vals = {
-            var: evaluar_caracteristica_categorica(desc_clean, var, maestro)
-            for var in variables_cat
-        }
+            cat_vals = {
+                var: evaluar_caracteristica_categorica(desc_clean, var, maestro)
+                for var in variables_cat
+            }
 
-        num_vals = {
-            var: extraer_potencia_numerica(desc_clean, var, maestro)
-            for var in variables_pot
-        }
+            num_vals = {
+                var: extraer_potencia_numerica(desc_clean, var, maestro)
+                for var in variables_pot
+            }
 
-        # Condicionales por rango (hoja 5_Condicionales): rellenan variables
-        # categóricas que las palabras clave no pudieron resolver, usando los
-        # valores numéricos/categóricos ya extraídos (ej. clasificar por
-        # rango de kVA). Nunca sobreescriben lo que ya resolvieron las reglas.
-        cat_vals = evaluar_condicionales(cat_vals, num_vals, maestro)
+            # Condicionales por rango (hoja 5_Condicionales): rellenan variables
+            # categóricas que las palabras clave no pudieron resolver, usando los
+            # valores numéricos/categóricos ya extraídos (ej. clasificar por
+            # rango de kVA). Nunca sobreescriben lo que ya resolvieron las reglas.
+            cat_vals = evaluar_condicionales(cat_vals, num_vals, maestro)
+
+            # Normalización cruzada: un equipo interactivo trifásico siempre es
+            # "Online". Se aplica ANTES de cachear para que las filas repetidas
+            # reciban exactamente el mismo valor que la primera aparición.
+            if cat_vals.get("Tipo_Tecnologia") == "Interactivo" and cat_vals.get("Salida_Fases") == "Trifasico":
+                cat_vals["Tipo_Tecnologia"] = "Online"
+
+            cache_reglas[clave_cache] = (
+                marca, fuente, producto_texto_desc1, modelo_serie_desc1,
+                dict(cat_vals), dict(num_vals),
+            )
+        else:
+            marca, fuente, producto_texto_desc1, modelo_serie_desc1, cat_vals, num_vals = calculado
+            # Copias propias para esta fila: los dicts cacheados ya vienen con
+            # condicionales y normalización aplicadas, pero fases posteriores
+            # (rescate IA) mutan los valores de la fila.
+            cat_vals = dict(cat_vals)
+            num_vals = dict(num_vals)
 
         val_principal_extracted = cat_vals.get(var_principal)
 
@@ -116,9 +145,6 @@ def procesar_dataframe_dinamico(
 
         marca_final = marca or maestro.dict_defaults.get(es_principal, "Marca Generica")
         fuente_marca = fuente if marca else "Default"
-
-        if cat_vals.get("Tipo_Tecnologia") == "Interactivo" and cat_vals.get("Salida_Fases") == "Trifasico":
-            cat_vals["Tipo_Tecnologia"] = "Online"
 
         res = {
             "Producto_Declarado": val_principal_extracted,

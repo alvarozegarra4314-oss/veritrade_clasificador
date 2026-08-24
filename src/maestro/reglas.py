@@ -1,5 +1,4 @@
 import re
-from difflib import SequenceMatcher
 
 # Indicadores explícitos de productos sin marca
 INDICADORES_SIN_MARCA = {
@@ -35,16 +34,6 @@ def es_indicador_sin_marca(candidato: str) -> bool:
         return False
     return candidato.upper().strip() in INDICADORES_SIN_MARCA
 
-def buscar_marca_fuzzy(texto_palabra: str, lista_marcas_estandar: list, umbral: float = 0.88) -> str:
-    """
-    Compara una palabra o token contra el catálogo de marcas usando similitud Levenshtein.
-    """
-    for marca in lista_marcas_estandar:
-        # Evalúa ratio de similitud (ej: 'SHNEIDER' vs 'SCHNEIDER' -> ~0.93)
-        ratio = SequenceMatcher(None, texto_palabra.upper(), marca.upper()).ratio()
-        if ratio >= umbral:
-            return marca
-    return None
 
 def normalizar_numero_extraido(texto_cifra: str) -> float:
     """
