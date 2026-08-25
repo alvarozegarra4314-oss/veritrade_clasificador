@@ -378,6 +378,13 @@ listo_para_procesar = (
     and not st.session_state.get("processing_active", False)
 )
 
+procesar = st.button(
+    "▶️ PROCESAR CLASIFICACIÓN",
+    type="primary",
+    width="stretch",
+    disabled=not listo_para_procesar
+)
+
 if procesar:
     if st.session_state.get("processing_active"):
         st.warning("⏳ Ya hay un procesamiento en curso. Espera a que termine.")
