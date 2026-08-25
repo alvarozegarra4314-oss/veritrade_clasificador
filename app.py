@@ -1,5 +1,6 @@
 import sys
 import warnings
+import threading
 from pathlib import Path
 from io import BytesIO
 from datetime import datetime
@@ -80,6 +81,16 @@ if "hoja_origen" not in st.session_state:
     st.session_state.hoja_origen = ""
 if "modelo_ia_usado" not in st.session_state:
     st.session_state.modelo_ia_usado = ""
+if "processing_active" not in st.session_state:
+    st.session_state.processing_active = False
+if "processing_done" not in st.session_state:
+    st.session_state.processing_done = False
+if "progress_pct" not in st.session_state:
+    st.session_state.progress_pct = 0.0
+if "progress_text" not in st.session_state:
+    st.session_state.progress_text = ""
+if "progress_error" not in st.session_state:
+    st.session_state.progress_error = None
 
 def _obtener_api_key_de_secrets() -> str:
     try:
@@ -361,205 +372,217 @@ with st.container(border=True):
 # SECCIÓN 3: ACCIÓN PRINCIPAL (PROCESAMIENTO)
 # =====================================================================
 st.write("") # Espaciador
-listo_para_procesar = (archivo_raw and maestro_bytes and hoja_raw_valida and (not usar_ia or api_key))
-
-procesar = st.button(
-    "▶️ PROCESAR CLASIFICACIÓN", 
-    type="primary", 
-    width="stretch",
-    disabled=not listo_para_procesar
+listo_para_procesar = (
+    archivo_raw and maestro_bytes and hoja_raw_valida
+    and (not usar_ia or api_key)
+    and not st.session_state.get("processing_active", False)
 )
 
 if procesar:
-    linea = st.session_state.get("linea_detectada", "Producto")
-
-    # Barra única para TODO el proceso (reglas + rescate IA). Se repinta solo
-    # cuando el avance justifica un refresco (~cada 0.5%) para no penalizar
-    # la velocidad del pipeline con miles de actualizaciones de UI.
-    # Incluye ETA (tiempo restante estimado) para que el usuario sepa cuánto
-    # falta en vez de descubrirlo esperando.
-    import time as _time
-    barra = st.progress(0.0, text="Preparando procesamiento...")
-    _estado_progreso = {"ultimo_pct": -1.0, "t_inicio": None}
-
-    def _actualizar_progreso(fase, i, total):
-        if not total or total <= 0:
-            return
-        pct = min(i / total, 1.0)
-        if pct < 1.0 and pct - _estado_progreso["ultimo_pct"] < 0.005:
-            return
-        if _estado_progreso["t_inicio"] is None:
-            _estado_progreso["t_inicio"] = _time.monotonic()
-        _estado_progreso["ultimo_pct"] = pct
-
-        eta_txt = ""
-        if 0.05 <= pct < 1.0:
-            transcurrido = _time.monotonic() - _estado_progreso["t_inicio"]
-            restante = transcurrido / pct * (1 - pct)
-            mins, segs = divmod(int(restante + 0.5), 60)
-            eta_txt = f" · faltan ~{f'{mins}m {segs:02d}s' if mins else f'{segs}s'}"
-
-        if fase == "reglas":
-            texto = f"Fase 1/2 · Reglas deterministas: {i:,} de {total:,} filas{eta_txt}"
-        else:
-            texto = f"Fase 2/2 · Rescate con IA: {i:,} de {total:,} descripciones únicas{eta_txt}"
-        barra.progress(pct, text=texto)
-
-    try:
+    if st.session_state.get("processing_active"):
+        st.warning("⏳ Ya hay un procesamiento en curso. Espera a que termine.")
+    else:
+        linea = st.session_state.get("linea_detectada", "Producto")
         archivo_raw.seek(0)
+        df_raw_bytes = archivo_raw.getvalue()
 
-        df_raw, maestro = ejecutar_pipeline_reglas_cached(
-            archivo_raw.getvalue(), maestro_bytes, hoja_raw
-        )
-
-        rescatador = None
-        if usar_ia and api_key:
-            rescatador = RescatadorIA(
-                api_key=api_key, maestro=maestro, rpm_limite=rpm_limite, modelo=modelo_ia
-            )
-
-        try:
-            df_resultado = procesar_dataframe_dinamico(
-                df_raw, maestro, rescatador_ia=rescatador, progreso_callback=_actualizar_progreso
-            )
-        finally:
-            # Libera la conexión SQLite de la caché aunque la corrida falle.
-            if rescatador is not None:
-                rescatador.cerrar()
-
-        # Mensaje final que SIEMPRE explica qué pasó con la Fase 2 (IA),
-        # para que el usuario entienda por qué vio o no vio esa fase:
-        # - IA desactivada -> solo hubo Fase 1.
-        # - Todo salió de caché -> la Fase 2 existió pero fue instantánea.
-        # - Hubo llamadas reales -> se resume cuánto rescató la IA.
-        if rescatador is not None:
-            desde_cache = (
-                rescatador.descripciones_desde_cache_mem
-                + rescatador.descripciones_desde_cache_db
-            )
-            via_api = rescatador.descripciones_rescatadas_api
-            if via_api == 0 and desde_cache == 0:
-                texto_final = "✅ Clasificación completada · Sin pendientes: las reglas resolvieron todo"
-            elif via_api == 0:
-                texto_final = (
-                    f"✅ Clasificación completada · Fase 2/2 resuelta al instante "
-                    f"desde caché ({desde_cache:,} descripciones, sin gastar cuota)"
-                )
-            else:
-                texto_final = (
-                    f"✅ Clasificación completada · IA rescató {via_api:,} descripciones "
-                    f"(+{desde_cache:,} desde caché)"
-                )
-        else:
-            texto_final = "✅ Clasificación completada · Solo reglas deterministas (rescate IA desactivado)"
-        barra.progress(1.0, text=texto_final)
-
-        # Guardar en sesión (con trazabilidad de la corrida para el Resumen)
-        st.session_state.df_resultado = df_resultado
+        st.session_state.df_raw_bytes = df_raw_bytes
+        st.session_state.maestro_bytes = maestro_bytes
+        st.session_state.hoja_raw = hoja_raw
         st.session_state.linea_producto = linea
-        st.session_state.proceso_completado = True
         st.session_state.archivo_origen = archivo_raw.name
         st.session_state.hoja_origen = hoja_raw
         st.session_state.modelo_ia_usado = (
-            f"Reglas + IA ({modelo_ia})" if rescatador is not None else "Reglas deterministas (sin IA)"
+            f"Reglas + IA ({modelo_ia})" if usar_ia else "Reglas deterministas (sin IA)"
         )
 
-        # ---- KPIs + Cobertura del análisis ----
-        total_filas = len(df_resultado)
-        kpis = {
-            "total": total_filas, "rescatados": 0, "cache": 0, "nuevas": 0, "errores": 0,
-            "con_producto": 0, "sin_producto": 0, "sin_marca": 0, "pendientes": 0,
-        }
+        # Resetear estado de progreso
+        st.session_state.progress_pct = 0.0
+        st.session_state.progress_text = "Preparando procesamiento..."
+        st.session_state.progress_error = None
+        st.session_state.processing_done = False
+        st.session_state.processing_active = True
+        st.session_state._rerun_triggered = False
 
-        if "Producto_Declarado" in df_resultado:
-            kpis["con_producto"] = int(df_resultado["Producto_Declarado"].notna().sum())
-            kpis["sin_producto"] = int(df_resultado["Producto_Declarado"].isna().sum())
-
-        if "Marca_Extraida" in df_resultado:
-            kpis["sin_marca"] = int(
-                df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER).sum()
-            )
-
-        # Pendientes = sin producto o sin marca
-        pendiente_mask = pd.Series(False, index=df_resultado.index)
-        if "Producto_Declarado" in df_resultado:
-            pendiente_mask |= df_resultado["Producto_Declarado"].isna()
-        if "Marca_Extraida" in df_resultado:
-            pendiente_mask |= df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER)
-        kpis["pendientes"] = int(pendiente_mask.sum())
-        st.session_state.df_pendientes = df_resultado[pendiente_mask].copy()
-
-        if rescatador is not None:
-            kpis["rescatados"] = int(df_resultado["Rescatado_Por_IA"].sum()) if "Rescatado_Por_IA" in df_resultado else 0
-            kpis["cache"] = rescatador.llamadas_desde_cache
-            kpis["errores"] = rescatador.errores
-
-            propuestas = getattr(rescatador, "propuestas_aprendizaje", None)
-            if propuestas and (propuestas.get("nuevas_marcas") or propuestas.get("nuevas_caracteristicas")):
-                buffer_maestro_opt = BytesIO()
-                resumen_opt = guardar_maestro_optimizado(
-                    ruta_maestro_original=BytesIO(maestro_bytes), propuestas=propuestas, ruta_salida=buffer_maestro_opt
+        def _procesar_en_hilo(_raw_bytes, _maestro_bytes, _hoja, _usar_ia, _api_key, _rpm, _modelo):
+            """Wrapper que ejecuta el pipeline completo en un hilo background."""
+            try:
+                _df_raw, _maestro = ejecutar_pipeline_reglas_cached(
+                    _raw_bytes, _maestro_bytes, _hoja
                 )
-                st.session_state.maestro_opt_data = buffer_maestro_opt.getvalue()
-                st.session_state.resumen_opt = resumen_opt
-                kpis["nuevas"] = resumen_opt.get("marcas_agregadas", 0) + resumen_opt.get("caracteristicas_agregadas", 0)
-            else:
-                st.session_state.maestro_opt_data = None
-                st.session_state.resumen_opt = None
-        else:
-            st.session_state.maestro_opt_data = None
-            st.session_state.resumen_opt = None
 
-        st.session_state.kpis = kpis
+                _rescatador = None
+                if _usar_ia and _api_key:
+                    _rescatador = RescatadorIA(
+                        api_key=_api_key, maestro=_maestro, rpm_limite=_rpm, modelo=_modelo
+                    )
 
-        # ---- Buffer del resultado final: hoja Resumen + Clasificacion con formato ----
-        # El Resumen da trazabilidad de la corrida (qué archivo, cuándo, con qué
-        # motor y qué cobertura tuvo), de modo que el Excel descargado se
-        # explica por sí solo sin depender de la memoria del usuario.
-        df_export = sanitizar_dataframe_para_excel(df_resultado)
-        cobertura_pct = f"{kpis['con_producto'] / max(total_filas, 1):.1%}"
-        df_resumen = pd.DataFrame([
-            ("Fecha de proceso", datetime.now().strftime("%Y-%m-%d %H:%M")),
-            ("Archivo origen", st.session_state.get("archivo_origen", "")),
-            ("Hoja procesada", str(st.session_state.get("hoja_origen", ""))),
-            ("Línea de producto", linea),
-            ("Motor de clasificación", st.session_state.get("modelo_ia_usado", "")),
-            ("Total de filas", f"{kpis['total']:,}"),
-            ("Con producto identificado", f"{kpis['con_producto']:,} ({cobertura_pct})"),
-            ("Sin producto identificado", f"{kpis['sin_producto']:,}"),
-            ("Sin marca (genérica)", f"{kpis['sin_marca']:,}"),
-            ("Pendientes de revisión", f"{kpis['pendientes']:,}"),
-            ("Rescatados por IA", f"{kpis['rescatados']:,}"),
-            ("Resueltos desde caché IA (ahorro)", f"{kpis['cache']:,}"),
-            ("Nuevas reglas aprendidas", f"+{kpis['nuevas']}"),
-            ("Errores de IA", f"{kpis['errores']:,}"),
-        ], columns=["Parametro", "Valor"])
+                def _cb_progreso(fase, i, total):
+                    if not total or total <= 0:
+                        return
+                    pct = min(i / total, 1.0)
+                    if fase == "reglas":
+                        txt = f"Fase 1/2 · Reglas: {i:,} de {total:,} filas"
+                    else:
+                        txt = f"Fase 2/2 · IA: {i:,} de {total:,} descripciones"
+                    st.session_state.progress_pct = pct
+                    st.session_state.progress_text = txt
 
-        output_buffer = BytesIO()
-        with pd.ExcelWriter(output_buffer, engine="openpyxl") as writer:
-            df_resumen.to_excel(writer, index=False, sheet_name="Resumen")
-            df_export.to_excel(writer, index=False, sheet_name="Clasificacion")
-            for nombre_hoja, df_hoja in (("Resumen", df_resumen), ("Clasificacion", df_export)):
                 try:
-                    aplicar_estilo_hoja_excel(writer.sheets[nombre_hoja], df_hoja)
-                except Exception:
-                    # Si la tabla nativa falla (ej. columnas duplicadas del
-                    # archivo crudo), el Excel igual se entrega legible.
-                    pass
-        st.session_state.df_export_data = output_buffer.getvalue()
+                    _df_resultado = procesar_dataframe_dinamico(
+                        _df_raw, _maestro, rescatador_ia=_rescatador, progreso_callback=_cb_progreso
+                    )
+                finally:
+                    if _rescatador is not None:
+                        _rescatador.cerrar()
 
-    except ValueError as e:
-        # Errores de validación (ej. columnas de descripción no reconocidas):
-        # el mensaje ya viene redactado para el usuario final.
-        barra.empty()
-        st.error(f"❌ No se pudo procesar el archivo:\n\n{e}")
-    except Exception as e:
-        barra.empty()
-        st.error(f"❌ No se pudo completar la clasificación. Detalle: {e}")
-        with st.expander("🛠️ Detalles técnicos (compartir con soporte)"):
-            st.exception(e)
-    finally:
-        barra.empty()
+                # Mensaje final según resultado de la IA
+                if _rescatador is not None:
+                    _desde_cache = (
+                        _rescatador.descripciones_desde_cache_mem
+                        + _rescatador.descripciones_desde_cache_db
+                    )
+                    _via_api = _rescatador.descripciones_rescatadas_api
+                    if _via_api == 0 and _desde_cache == 0:
+                        _texto_final = "✅ Completado · Las reglas resolvieron todo"
+                    elif _via_api == 0:
+                        _texto_final = (
+                            f"✅ Completado · Caché IA: {_desde_cache:,} (sin gastar cuota)"
+                        )
+                    else:
+                        _texto_final = (
+                            f"✅ Completado · IA rescató {_via_api:,} "
+                            f"(+{_desde_cache:,} desde caché)"
+                        )
+                else:
+                    _texto_final = "✅ Completado · Solo reglas deterministas"
+
+                st.session_state.progress_pct = 1.0
+                st.session_state.progress_text = _texto_final
+
+                # Guardar resultado en session_state
+                st.session_state.df_resultado = _df_resultado
+                st.session_state.proceso_completado = True
+
+                # ---- KPIs ----
+                _total_filas = len(_df_resultado)
+                _kpis = {
+                    "total": _total_filas, "rescatados": 0, "cache": 0, "nuevas": 0, "errores": 0,
+                    "con_producto": 0, "sin_producto": 0, "sin_marca": 0, "pendientes": 0,
+                }
+
+                if "Producto_Declarado" in _df_resultado:
+                    _kpis["con_producto"] = int(_df_resultado["Producto_Declarado"].notna().sum())
+                    _kpis["sin_producto"] = int(_df_resultado["Producto_Declarado"].isna().sum())
+
+                if "Marca_Extraida" in _df_resultado:
+                    _kpis["sin_marca"] = int(
+                        _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER).sum()
+                    )
+
+                _pend_mask = pd.Series(False, index=_df_resultado.index)
+                if "Producto_Declarado" in _df_resultado:
+                    _pend_mask |= _df_resultado["Producto_Declarado"].isna()
+                if "Marca_Extraida" in _df_resultado:
+                    _pend_mask |= _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER)
+                _kpis["pendientes"] = int(_pend_mask.sum())
+                st.session_state.df_pendientes = _df_resultado[_pend_mask].copy()
+
+                if _rescatador is not None:
+                    _kpis["rescatados"] = int(_df_resultado["Rescatado_Por_IA"].sum()) if "Rescatado_Por_IA" in _df_resultado else 0
+                    _kpis["cache"] = _rescatador.llamadas_desde_cache
+                    _kpis["errores"] = _rescatador.errores
+
+                    _propuestas = getattr(_rescatador, "propuestas_aprendizaje", None)
+                    if _propuestas and (_propuestas.get("nuevas_marcas") or _propuestas.get("nuevas_caracteristicas")):
+                        _buf_opt = BytesIO()
+                        _resumen_opt = guardar_maestro_optimizado(
+                            ruta_maestro_original=BytesIO(_maestro_bytes), propuestas=_propuestas, ruta_salida=_buf_opt
+                        )
+                        st.session_state.maestro_opt_data = _buf_opt.getvalue()
+                        st.session_state.resumen_opt = _resumen_opt
+                        _kpis["nuevas"] = _resumen_opt.get("marcas_agregadas", 0) + _resumen_opt.get("caracteristicas_agregadas", 0)
+                    else:
+                        st.session_state.maestro_opt_data = None
+                        st.session_state.resumen_opt = None
+                else:
+                    st.session_state.maestro_opt_data = None
+                    st.session_state.resumen_opt = None
+
+                st.session_state.kpis = _kpis
+
+                # ---- Buffer Excel ----
+                _df_export = sanitizar_dataframe_para_excel(_df_resultado)
+                _cobertura_pct = f"{_kpis['con_producto'] / max(_total_filas, 1):.1%}"
+                _df_resumen = pd.DataFrame([
+                    ("Fecha de proceso", datetime.now().strftime("%Y-%m-%d %H:%M")),
+                    ("Archivo origen", st.session_state.get("archivo_origen", "")),
+                    ("Hoja procesada", str(st.session_state.get("hoja_origen", ""))),
+                    ("Línea de producto", st.session_state.get("linea_producto", "")),
+                    ("Motor de clasificación", st.session_state.get("modelo_ia_usado", "")),
+                    ("Total de filas", f"{_kpis['total']:,}"),
+                    ("Con producto identificado", f"{_kpis['con_producto']:,} ({_cobertura_pct})"),
+                    ("Sin producto identificado", f"{_kpis['sin_producto']:,}"),
+                    ("Sin marca (genérica)", f"{_kpis['sin_marca']:,}"),
+                    ("Pendientes de revisión", f"{_kpis['pendientes']:,}"),
+                    ("Rescatados por IA", f"{_kpis['rescatados']:,}"),
+                    ("Resueltos desde caché IA (ahorro)", f"{_kpis['cache']:,}"),
+                    ("Nuevas reglas aprendidas", f"+{_kpis['nuevas']}"),
+                    ("Errores de IA", f"{_kpis['errores']:,}"),
+                ], columns=["Parametro", "Valor"])
+
+                _output_buf = BytesIO()
+                with pd.ExcelWriter(_output_buf, engine="openpyxl") as _writer:
+                    _df_resumen.to_excel(_writer, index=False, sheet_name="Resumen")
+                    _df_export.to_excel(_writer, index=False, sheet_name="Clasificacion")
+                    for _nh, _dh in (("Resumen", _df_resumen), ("Clasificacion", _df_export)):
+                        try:
+                            aplicar_estilo_hoja_excel(_writer.sheets[_nh], _dh)
+                        except Exception:
+                            pass
+                st.session_state.df_export_data = _output_buf.getvalue()
+
+            except Exception as e:
+                st.session_state.progress_error = str(e)
+                st.session_state.progress_text = f"❌ Error: {e}"
+            finally:
+                st.session_state.processing_done = True
+
+        # Lanzar hilo de procesamiento
+        _thread = threading.Thread(
+            target=_procesar_en_hilo,
+            args=(df_raw_bytes, maestro_bytes, hoja_raw, usar_ia, api_key, rpm_limite, modelo_ia),
+            daemon=True,
+        )
+        _thread.start()
+
+# =====================================================================
+# SECCIÓN 3b: INDICADOR DE PROCESAMIENTO (se muestra en reruns posteriores)
+# =====================================================================
+if (
+    st.session_state.get("processing_active", False)
+    and not st.session_state.get("processing_done", False)
+):
+    st.write("") # Espaciador
+    @st.fragment(run_every="500ms")
+    def _fragmento_progreso_rerun():
+        pct = st.session_state.get("progress_pct", 0.0)
+        texto = st.session_state.get("progress_text", "Iniciando...")
+        error = st.session_state.get("progress_error")
+        done = st.session_state.get("processing_done", False)
+
+        st.progress(pct, text=texto)
+
+        if error:
+            st.error(f"❌ {error}")
+            st.session_state.processing_active = False
+        elif done:
+            st.session_state.processing_active = False
+            if not st.session_state.get("_rerun_triggered"):
+                st.session_state._rerun_triggered = True
+                st.rerun()
+
+    _fragmento_progreso_rerun()
 
 # =====================================================================
 # SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)
@@ -606,7 +629,7 @@ if st.session_state.proceso_completado and st.session_state.df_resultado is not 
     df_pendientes = st.session_state.get("df_pendientes")
     if pendientes > 0 and df_pendientes is not None and len(df_pendientes) > 0:
         with st.expander(f"🔍 Ver los {pendientes:,} registros pendientes de revisión"):
-            st.caption("Registros donde no se identificó el producto o la marca quedó genérica. Descárgalos para depurar el maestro.")
+            st.caption("Registros donde no se identificó el producto o la marca quedó genérica. Descágalos para depurar el maestro.")
             st.dataframe(df_pendientes.head(100), width="stretch", hide_index=True)
             if len(df_pendientes) > 100:
                 st.caption(f"Mostrando 100 de {len(df_pendientes):,} filas. Descarga el Excel para ver todas.")
