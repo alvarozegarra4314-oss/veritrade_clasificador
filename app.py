@@ -806,45 +806,18 @@ with tab_crear:
     with col_template:
         with st.container(border=True):
             st.markdown("**Maestro plantilla (referencia)**")
-            st.caption("Define el formato de salida. Se usa el incluido por defecto.")
-            fuente_template = st.radio(
-                "Fuente del template",
-                ["Usar plantilla incluida", "Subir mi plantilla"],
-                horizontal=True,
-                key="fuente_template",
+            st.caption("Define el formato de salida. Sube tu plantilla .xlsx.")
+            up_tpl = st.file_uploader(
+                "Sube tu plantilla .xlsx",
+                type=["xlsx"],
+                label_visibility="collapsed",
+                key="up_template",
             )
             template_bytes = None
-            if fuente_template == "Usar plantilla incluida":
-                ruta_tpl = BASE_DIR / "data" / "maestro" / "Maestro_Plantilla.xlsx"
-                try:
-                    if ruta_tpl.exists():
-                        template_bytes = ruta_tpl.read_bytes()
-                        st.success(f"✅ Plantilla: {ruta_tpl.name}")
-                except Exception:
-                    template_bytes = None
-
-                if template_bytes is None:
-                    # Fallback al maestro UPS si no hay plantilla
-                    ruta_tpl = BASE_DIR / "data" / "maestro" / "Maestro_UPS_v2.xlsx"
-                    try:
-                        if ruta_tpl.exists():
-                            template_bytes = ruta_tpl.read_bytes()
-                            st.info(f"ℹ️ Usando maestro UPS como referencia: {ruta_tpl.name}")
-                    except Exception:
-                        template_bytes = None
-
-                if template_bytes is None:
-                    st.warning("⚠️ No se encontró ninguna plantilla. Sube una manualmente.")
-            else:
-                up_tpl = st.file_uploader(
-                    "Sube tu plantilla .xlsx",
-                    type=["xlsx"],
-                    label_visibility="collapsed",
-                    key="up_template",
-                )
-                if up_tpl:
-                    up_tpl.seek(0)
-                    template_bytes = up_tpl.getvalue()
+            if up_tpl:
+                up_tpl.seek(0)
+                template_bytes = up_tpl.getvalue()
+                st.success(f"✅ Plantilla: {up_tpl.name}")
 
     listo_paso1 = archivo_crudo_creador is not None and template_bytes is not None
     st.write("")
