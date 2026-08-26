@@ -538,9 +538,29 @@ class RescatadorIA:
                         nuevos_pendientes.append(desc)
                 pendientes = nuevos_pendientes
 
-        # --- Capa 2: API real, en lotes ---
-        for inicio in range(0, len(pendientes), self.batch_size):
-            lote = pendientes[inicio:inicio + self.batch_size]
+        # --- Capa 2: API real, con tamaño de lote dinámico ---
+        def _tamano_lote(n_total: int) -> int:
+            """Determina el tamaño del lote según la cantidad TOTAL de filas pendientes.
+            Se evalúa UNA vez al inicio con el total completo."""
+            if n_total <= 100:
+                return 10
+            elif n_total <= 300:
+                return 15
+            elif n_total <= 1000:
+                return 50
+            else:
+                return 60
+
+        batch = _tamano_lote(len(pendientes))
+        logger.info(
+            "Lotes dinámicos: %d pendientes → batch=%d", len(pendientes), batch
+        )
+        for idx_lote, inicio in enumerate(range(0, len(pendientes), batch), 1):
+            lote = pendientes[inicio:inicio + batch]
+            logger.info(
+                "Lote %d/%d (%d ítems, offset %d)",
+                idx_lote, -(-len(pendientes) // batch), len(lote), inicio,
+            )
             mapeado = self._llamar_gemini_lote(lote)
             self.lotes_procesados += 1
 
