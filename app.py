@@ -832,68 +832,90 @@ with tab_crear:
     st.write("")
 
     # ------------------------------------------------------------------
-    # PASO 2: Formulario de dominio del PM
+    # PASO 2: Formulario de dominio del PM (COMPLETAMENTE OPCIONAL)
     # ------------------------------------------------------------------
     if listo_paso1:
         st.markdown("#### 🧠 Paso 2: Contexto de tu producto")
-        st.caption("Estas respuestas ayudan a la IA a generar reglas más precisas para tu categoría.")
+        st.caption(
+            "Opcional: si tienes contexto del producto, la IA lo usará para mejorar las reglas. "
+            "Si no填写 nada, la IA analizará directamente las descripciones."
+        )
 
-        with st.form("form_dominio"):
-            c_producto, c_n_muestra = st.columns([2, 1])
-            with c_producto:
-                producto_nombre = st.text_input(
-                    "Nombre del producto a clasificar *",
-                    value=st.session_state.creador_producto or "",
-                    placeholder="Ej: Estabilizadores, Baterías, Cables...",
-                    help="Nombre corto de la categoría. Se usará en la hoja de Config y como marca por defecto.",
-                )
-            with c_n_muestra:
-                n_muestra = st.slider(
-                    "Tamaño de muestra",
-                    min_value=80,
-                    max_value=200,
-                    value=MUESTRA_DEFAULT,
-                    help="Más filas = mejor cobertura pero más tokens. 150 es un buen equilibrio.",
-                )
+        c_producto, c_n_muestra = st.columns([2, 1])
+        with c_producto:
+            producto_nombre = st.text_input(
+                "Nombre del producto a clasificar *",
+                value=st.session_state.creador_producto or "",
+                placeholder="Ej: Estabilizadores, Baterías, Cables...",
+                help="Nombre corto de la categoría. Requerido para generar el maestro.",
+            )
+        with c_n_muestra:
+            n_muestra = st.slider(
+                "Tamaño de muestra",
+                min_value=80,
+                max_value=500,
+                value=MUESTRA_DEFAULT,
+                help="500 filas = máxima cobertura y calidad.",
+            )
 
+        with st.expander("📝 Contexto adicional del PM (todo opcional)", expanded=False):
             caracteristicas = st.text_area(
-                "¿Qué 3-5 características usas para diferenciar productos de esta categoría?",
+                "Características diferenciadoras (opcional)",
                 value=st.session_state.creador_dominio.get("caracteristicas", ""),
-                placeholder="Ej: Tecnología (online/trifásico), Fases, Formato (rack/piso), Gama (básica/media/alta), Capacidad...",
-                height=80,
+                placeholder="Ej: Tecnología (online/trifásico), Fases, Formato (rack/piso), Gama...",
+                height=70,
             )
 
             marcas_conocidas = st.text_area(
-                "¿Qué marcas conoces que son comunes? (opcional pero ayuda)",
+                "Marcas conocidas en esta categoría (opcional)",
                 value=st.session_state.creador_dominio.get("marcas_conocidas", ""),
-                placeholder="Ej: APC, Eaton, CyberPower, Lestar, Schneider, General Electric...",
+                placeholder="Ej: APC, Eaton, CyberPower, Lestar, Schneider...",
                 height=60,
             )
 
             patrones_tecnicos = st.text_area(
-                "¿Hay patrones numéricos técnicos relevantes? (opcional)",
+                "Patrones numéricos técnicos relevantes (opcional)",
                 value=st.session_state.creador_dominio.get("patrones_tecnicos", ""),
-                placeholder="Ej: Voltaje (110V, 220V), Potencia (kVA, KW), Capacidad (Ah, Wh), Amperios...",
+                placeholder="Ej: Voltaje (110V, 220V), Potencia (kVA, KW), Capacidad (Ah, Wh)...",
                 height=60,
             )
 
-            submit_dominio = st.form_submit_button(
-                "✅ Confirmar y ver muestra",
+        # Dos botones: uno con contexto, otro directo (sin formulario)
+        c_directo, c_contexto = st.columns([1, 1])
+        with c_directo:
+            if st.button(
+                "⚡ Generar directamente (sin contexto extra)",
+                type="secondary",
+                width="stretch",
+                disabled=not producto_nombre.strip(),
+            ):
+                if not producto_nombre.strip():
+                    st.error("⚠️ Escribe el nombre del producto.")
+                else:
+                    st.session_state.creador_producto = producto_nombre.strip()
+                    st.session_state.creador_dominio = {
+                        "caracteristicas": "",
+                        "marcas_conocidas": "",
+                        "patrones_tecnicos": "",
+                    }
+                    st.session_state.creador_step = 1
+        with c_contexto:
+            if st.button(
+                "✅ Usar contexto y ver muestra",
                 type="primary",
                 width="stretch",
-            )
-
-        if submit_dominio:
-            if not producto_nombre.strip():
-                st.error("⚠️ Escribe el nombre del producto.")
-            else:
-                st.session_state.creador_producto = producto_nombre.strip()
-                st.session_state.creador_dominio = {
-                    "caracteristicas": caracteristicas.strip(),
-                    "marcas_conocidas": marcas_conocidas.strip(),
-                    "patrones_tecnicos": patrones_tecnicos.strip(),
-                }
-                st.session_state.creador_step = 1
+                disabled=not producto_nombre.strip(),
+            ):
+                if not producto_nombre.strip():
+                    st.error("⚠️ Escribe el nombre del producto.")
+                else:
+                    st.session_state.creador_producto = producto_nombre.strip()
+                    st.session_state.creador_dominio = {
+                        "caracteristicas": caracteristicas.strip(),
+                        "marcas_conocidas": marcas_conocidas.strip(),
+                        "patrones_tecnicos": patrones_tecnicos.strip(),
+                    }
+                    st.session_state.creador_step = 1
 
     # ------------------------------------------------------------------
     # PASO 3: Muestra estratificada

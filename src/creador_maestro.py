@@ -44,8 +44,8 @@ logger = logging.getLogger("creador_maestro")
 
 # Mínimo y máximo de filas en la muestra enviada a la IA
 MUESTRA_MINIMA = 80
-MUESTRA_MAXIMA = 200
-MUESTRA_DEFAULT = 150
+MUESTRA_MAXIMA = 500
+MUESTRA_DEFAULT = 500
 
 
 # =====================================================================
@@ -270,6 +270,8 @@ def _construir_prompt_creador(
 ) -> tuple[str, str]:
     """
     Construye el system prompt y el user prompt para la generación del maestro.
+    El prompt es AUTOCONTENIDO: extrae toda la información directamente de las
+    descripciones reales, sin depender de que el PM responda el formulario.
 
     Retorna: (system_prompt, user_prompt)
     """
@@ -283,103 +285,154 @@ def _construir_prompt_creador(
 
     texto_descripciones = "\n".join(descripciones)
 
-    # Preparar contexto de dominio
-    texto_caracteristicas = dominio.get("caracteristicas", "No especificadas")
-    texto_marcas = dominio.get("marcas_conocidas", "No especificadas")
-    texto_patrones = dominio.get("patrones_tecnicos", "No especificados")
+    # Contexto adicional del PM (solo si lo proporcionó)
+    contexto_extra = ""
+    if dominio.get("caracteristicas"):
+        contexto_extra += f"\n**El PM indica que estas son las características diferenciadoras:**\n{dominio['caracteristicas']}\n"
+    if dominio.get("marcas_conocidas"):
+        contexto_extra += f"\n**Marcas conocidas por el PM:**\n{dominio['marcas_conocidas']}\n"
+    if dominio.get("patrones_tecnicos"):
+        contexto_extra += f"\n**Patrones técnicos que el PM menciona:**\n{dominio['patrones_tecnicos']}\n"
 
     # Serializar estructura del template como referencia
     ref_template = json.dumps(estructura_template, indent=1, ensure_ascii=False, default=str)
     if len(ref_template) > 4000:
         ref_template = ref_template[:4000] + "\n... ( truncado por longitud)"
 
-    system_prompt = f"""Eres un experto en clasificación de productos de comercio exterior (importaciones/exportaciones).
-Tu tarea es crear un ARCHIVO MAESTRO de clasificación para la línea de productos "{producto}" basándote en una muestra de descripciones de importaciones reales.
+    system_prompt = f"""Eres un experto MUNDIAL en clasificación de productos de comercio exterior (importaciones/exportaciones).
+Tu tarea es crear un ARCHIVO MAESTRO de clasificación completo y detallado para la línea de productos "{producto}".
 
-El maestro es un archivo Excel con hojas específicas que un motor de clasificación automática consume. Cada hoja tiene un propósito y formato exacto.
+El maestro es un archivo Excel con hojas específicas que un motor de clasificación automática consume.
+Debes generar REGLAS EXTENSAS, EXHAUSTIVAS y PRECISAS basándote ÚNICAMENTE en las descripciones de importación reales que te proporcionaré.
+
+## REGLA DE ORO
+Analiza CADA descripción de la muestra y extrae TODA la información posible:
+- Marcas (incluso abreviaturas, siglas, variantes ortográficas)
+- Características categóricas (tecnología, formato, gama, fases, uso, etc.)
+- Valores numéricos (voltaje, potencia, capacidad, corriente, frecuencia)
+- Patrones regex que capturen variaciones de escritura
+- Reglas condicionales que resuelvan ambigüedades
 
 ## ESTRUCTURA DEL MAESTRO (formato que DEBES respetar exactamente)
 
 {ref_template}
 
-## INSTRUCCIONES POR HOJA
+## INSTRUCCIONES DETALLADAS POR HOJA
 
 ### Hoja "0b_Config_Linea"
 Parámetros clave-valor. Siempre incluir:
 - PARAMETRO="LINEA_PRODUCTO", VALOR="{producto}"
 - PARAMETRO="COL_DESCRIPCION", VALOR="Descripcion Comercial"
+- PARAMETRO="MUESTRA_ANALIZADA", VALOR="{len(descripciones)} filas"
 
-### Hoja "1_Marcas"
+### Hoja "1_Marcas" — MÍNIMO 30 marcas, idealmente 50-100+
 Diccionario de marcas: Patrón detectado en texto → Marca estandarizada → Prioridad.
 - Prioridad: 1=alta (regla humana), 2=media, 3=baja (aprendizaje IA).
-- El "Patrón" es una palabra o frase tal como aparece en las descripciones (para matching directo).
-- Incluye TODAS las marcas que identifiques en la muestra. Sé exhaustivo.
-- La IA debe NORMALIZAR marcas (ej: "Schneider", "Schneider Electric", "SE" → todos apuntan a "SCHNEIDER ELECTRIC").
+- El "Patrón" es una palabra o frase TAL COMO aparece en las descripciones (para matching directo).
+- Incluye TODAS las marcas que identifiques en la muestra. Sé EXHAUSTIVO.
+- NORMALIZAR marcas: variantes diferentes de la misma marca deben apuntar al mismo nombre estándar.
+- Ejemplo: "APC", "A.P.C", "APC BY SCHNEIDER" → todos "SCHNEIDER ELECTRIC" o "APC" según convenga.
+- Busca también: siglas de marcas, nombres parciales, variantes con/espacios/puntos.
 
-### Hoja "1b_Palabras_Ignorar" (Stopwords)
+### Hoja "1b_Palabras_Ignorar" — MÍNIMO 40 stopwords
 Columna única "Palabra". Incluir palabras que NUNCA deben considerarse marca:
-- Términos genéricos: "GENérico", "SIN MARCA", "NO APLICA", etc.
-- Palabras técnicas comunes de la categoría: "MODULO", "CABLE", "DISPOSITIVO", etc.
-- Reutilizar stopwords genéricos Y agregar específicos de "{producto}".
+- Términos genéricos: "GENérico", "SIN MARCA", "NO APLICA", "PARA", "CON", "DE", "EL", "LA", etc.
+- Términos técnicos genéricos de la categoría "{producto}": "MODULO", "CABLE", "DISPOSITIVO", etc.
+- Palabras de uso común en facturas: "UNIDAD", "PIEZA", "LOTE", "CAJA", "KIT", etc.
+- Términos específicos de la categoría que aparecen en descripciones pero NO son marcas.
 
 ### Hoja "1c_Marca_Por_Defeito"
 Marca a asignar cuando nada coincide:
-- Si producto principal=True → nombre del producto (ej: "{producto}")
+- Si producto principal=True → "{producto}" (nombre de la línea)
 - Si producto principal=False → "MARCA COMPONENTES"
 
-### Hoja "2_Caracteristicas"
+### Hoja "2_Caracteristicas" — MÍNIMO 50 reglas, idealmente 100+
 Palabras clave → valor de cada característica categórica.
 Cada fila: Variable | Palabra_Clave | Valor_Resultado | Prioridad
-- "Variable" es el nombre de la característica (ej: "Tecnologia", "Fases", "Formato", "Gama")
-- "Palabra_Clave" son palabras/fragmente que, al aparecer en la descripción, indican ese valor
-- "Valor_Resultado" es el valor normalizado de la característica
-- Usar regex simple: alternaciones con | (ej: "TRIF|3F|3~|TRIFASICO|3 FASES")
+
+**OBLIGATORIO extraer estas variables (si existen en las descripciones):**
+- "Tecnologia": online, offline, lineal, digital, etc.
+- "Fases": monofasico, trifasico, bifasico, 1F, 2F, 3F
+- "Formato": rack, piso, modular, compacto, portatil, etc.
+- "Gama": basica, media, alta, premium, industrial, comercial
+- "Uso": domiciliario, industrial, hospitalario, oficina, servidor, etc.
+- "Capacidad": rango de capacidad (baja, media, alta)
+- "Voltaje": 110V, 220V, 110/220V, bivoltaje, universal
+- Cualquier OTRA característica que identifiques en las descripciones
+
+- "Palabra_Clave" debe aparecer LITERALMENTE en las descripciones (o ser un regex válido).
+- Usar regex simple: alternaciones con | (ej: "TRIF|3F|3~|TRIFASICO|3 FASES|TRES FASES")
 - Prioridad: 1=alta, 2=media, 3=baja
+- Ser EXHAUSTIVO: cada variación de escritura debe tener su propia fila.
 
-### Hoja "3_Tecnico_Potencia_NOEDIT"
+### Hoja "3_Tecnico_Potencia_NOEDIT" — MÍNIMO 5 patrones
 Extracción de valores numéricos técnicos con multiplicadores de unidad.
-Cada fila: Variable | Patron | Multiplicador | Valor_Min | Valor_Max | Unidad
-- El Patrón es un regex que captura el número (con grupo de captura)
-- El Multiplicador convierte a la unidad base (ej: KVA→VA es *1000)
-- Solo incluir si hay patrones numéricos relevantes para "{producto}".
+Cada fila: Variable | Patron | Multiplicador | Valor_Min | Valor_Max | Unidad | Orden_Prioridad
 
-### Hoja "4_Tecnico_RegexMarca_NOEDIT"
-Patrones regex avanzados para marcas difíciles.
-Solo incluir si hay marcas que requieren matching complejo (ej: abreviaturas ambiguas).
+**Variables obligatorias a detectar (si existen):**
+- Potencia: VA, KVA, KW, W, AMP
+- Voltaje: V, KV
+- Capacidad: AH, WH, KWH, MAH
+- Frecuencia: HZ, KHZ, MHZ
+- Temperatura: °C, °F
+- Corriente: A, MA, KA
 
-### Hoja "5_Condicionales"
-Reglas tipo SI-ENTONCES para resolver ambigüedades.
+- El Patrón es un regex con grupo de captura que extrae el número.
+- El Multiplicador convierte a la unidad base (ej: KVA→VA es *1000, KW→W es *1000).
+- Valor_Min y Valor_Max son rangos razonables para filtrar falsos positivos.
+
+### Hoja "4_Tecnico_RegexMarca_NOEDIT" — MÍNIMO 10 patrones
+Patrones regex avanzados para marcas difíciles o ambiguas.
+Incluir patrones para:
+- Marcas con variaciones ortográficas
+- Marcas que son abreviaturas cortas (2-3 letras) que pueden confundirse con otras palabras
+- Marcas que aparecen en diferentes formatos (con/sin espacios, con/numeros, etc.)
+
+### Hoja "5_Condicionales" — MÍNIMO 10 reglas
+Reglas SI-ENTONCES para resolver ambigüedades y refinar clasificación.
 Cada fila: Regla_ID | Variable_Resultado | Valor_Resultado | Prioridad | Variable_Condicion | Operador | Valor_1 | Valor_2 | Es_Numerica
-- Ejemplo: SI potencia >= 10000 Y potencia <= 100000 ENTONCES Gama="Alta"
+
+**Ejemplos de reglas a crear:**
+- SI potencia >= 10000 Y potencia <= 100000 ENTONCES Gama="Alta"
+- SI marca ES "APC" Y tecnologia ES "online" ENTONCES Gama="Premium"
+- SI voltaje contiene "110/220" ENTONCES Voltaje="Bivoltaje"
+- SI descripcion contiene "INDUSTRIAL" ENTONCES Uso="Industrial"
+
+## ANÁLISIS OBLIGATORIO DE LAS DESCRIPCIONES
+
+Antes de generar el JSON, analiza CADA descripción de la muestra y extrae:
+1. ¿Qué marcas aparecen? (todas, incluyendo variantes)
+2. ¿Qué caracteres técnicos se repiten? (voltaje, potencia, fases, etc.)
+3. ¿Qué palabras son genéricas vs específicas de marca?
+4. ¿Qué patrones numéricos hay? (rangos de valores)
+5. ¿Qué ambigüedades existen que se resuelvan con condicionales?
 
 ## REGLAS CRÍTICAS
 1. Las descripciones de importación son textos de FACTURA: marcas, modelos, especificaciones, usos mezclados.
-2. Para "1_Marcas": ser EXHAUSTIVO con marcas reales. No inventar marcas que no aparezcan en las descripciones.
-3. Para "2_Caracteristicas": las PALABRAS CLAVE deben aparecer LITERALMENTE en las descripciones de la muestra.
-4. Para "3_Tecnico_Potencia": los patrones regex deben capturar correctamente los números de las descripciones.
-5. NUNCA inventar datos. Si algo no se puede inferir de la muestra, dejar la hoja vacía o con un comentario.
+2. Sé EXHAUSTIVO: mejor sobregenerar que subgenerar. El PM puede borrar, pero no sabe qué falta.
+3. Cada hoja debe tener como mínimo los números indicados arriba.
+4. NUNCA inventar datos que no estén en las descripciones. Si un patrón no existe, no lo inventes.
+5. Los patrones regex deben ser FUNCIONALES (probados mentalmente contra las descripciones).
 6. Devolver SOLO el JSON válido, sin texto adicional."""
 
-    user_prompt = f"""## CONTEXTO DEL PM
-
+    user_prompt = f"""## CONTEXTO DEL PRODUCTO
 **Producto a clasificar:** {producto}
-
-**Características diferenciadoras que usa el PM:**
-{texto_caracteristicas}
-
-**Marcas conocidas en esta categoría (el PM las menciona):**
-{texto_marcas}
-
-**Patrones técnicos numéricos relevantes:**
-{texto_patrones}
-
-## MUESTRA DE DESCRIPCIONES REALES ({len(descripciones)} filas únicas)
+{contexto_extra}
+## MUESTRA DE DESCRIPCIONES REALES ({len(descripciones)} filas únicas extraídas de Veritrade)
 
 {texto_descripciones}
 
 ---
 
-Genera el JSON del maestro siguiendo EXACTAMENTE el formato del template. Devuelve ÚNICAMENTE el JSON, sin explicaciones."""
+## INSTRUCCIONES DE GENERACIÓN
+
+1. Lee TODAS las descripciones de arriba.
+2. Identifica TODAS las marcas, características, valores técnicos y patrones.
+3. Genera el JSON del maestro con la CANTIDAD MÍNIMA de reglas indicada en cada hoja.
+4. Para "1_Marcas": necesito MÍNIMO 30 marcas (idealmente 50+).
+5. Para "2_Caracteristicas": necesito MÍNIMO 50 reglas (idealmente 100+).
+6. Para "5_Condicionales": necesito MÍNIMO 10 reglas condicionales.
+7. Devuelve ÚNICAMENTE el JSON, sin explicaciones."""
 
     return system_prompt, user_prompt
 
@@ -601,6 +654,7 @@ def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.
         cfg_rows = [
             {"PARAMETRO": "LINEA_PRODUCTO", "VALOR": producto},
             {"PARAMETRO": "COL_DESCRIPCION", "VALOR": "Descripcion Comercial"},
+            {"PARAMETRO": "MUESTRA_ANALIZADA", "VALOR": f"{len(datos)} filas"},
         ]
     hojas["0b_Config_Linea"] = pd.DataFrame(cfg_rows)
 
