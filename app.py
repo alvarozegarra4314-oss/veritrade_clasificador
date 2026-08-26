@@ -211,501 +211,896 @@ st.markdown("Sube tu archivo de importaciones y obtén la clasificación por pro
 st.write("") # Espaciador
 
 # =====================================================================
-# SECCIÓN 1: CARGA DE ARCHIVOS
+# TABS PRINCIPALES
 # =====================================================================
-c_raw, c_maestro = st.columns(2)
+tab_clasificar, tab_crear = st.tabs(["📊 Clasificar Importaciones", "🔧 Crear Maestro"])
 
-hoja_raw_valida = False
-archivo_raw = None
-maestro_bytes = None
-maestro_nombre = None
-maestro_info = None
+with tab_clasificar:
+    # =====================================================================
+    # SECCIÓN 1: CARGA DE ARCHIVOS
+    # =====================================================================
+    c_raw, c_maestro = st.columns(2)
 
-with c_raw:
-    with st.container(border=True):
-        st.subheader("1. Archivo de Datos Crudos")
-        st.caption("Sube el archivo Excel con las descripciones a analizar.")
-        archivo_raw = st.file_uploader("Arrastra tu archivo .xlsx aquí", type=["xlsx"], label_visibility="collapsed")
+    hoja_raw_valida = False
+    archivo_raw = None
+    maestro_bytes = None
+    maestro_nombre = None
+    maestro_info = None
 
-        if archivo_raw is not None:
-            try:
-                archivo_raw.seek(0)
-                info_hojas = _listar_hojas_y_filas(archivo_raw.getvalue())
-                nombres_hojas = [i["nombre"] for i in info_hojas]
+    with c_raw:
+        with st.container(border=True):
+            st.subheader("1. Archivo de Datos Crudos")
+            st.caption("Sube el archivo Excel con las descripciones a analizar.")
+            archivo_raw = st.file_uploader("Arrastra tu archivo .xlsx aquí", type=["xlsx"], label_visibility="collapsed")
 
-                if nombres_hojas:
-                    recomendada = _hoja_recomendada(info_hojas)
-                    idx_default = nombres_hojas.index(recomendada) if recomendada in nombres_hojas else 0
-                    hoja_raw = st.selectbox(
-                        "Hoja a procesar",
-                        nombres_hojas,
-                        index=idx_default,
-                        help="Se preseleccionó automáticamente la hoja con más datos.",
-                    )
-                    filas_estimadas = info_hojas[idx_default]["filas"]
-                    cols_nombradas = info_hojas[idx_default].get("cols_nombradas", 0)
-                    st.caption(f"📄 Hoja **{hoja_raw}** — ~{filas_estimadas:,} filas · {cols_nombradas} columnas")
-
-                    # Validación temprana: la hoja debe tener columnas de
-                    # descripción reconocibles ANTES de permitir procesar.
-                    # Así el usuario descubre el problema aquí y no tras un error.
-                    df_prev = None
-                    try:
-                        df_prev = _vista_previa_cruda(archivo_raw.getvalue(), hoja_raw)
-                    except Exception as e:
-                        st.error(f"No se pudo leer la hoja '{hoja_raw}': {e}")
-
-                    if df_prev is not None:
-                        cols_desc_detectadas = identificar_columnas_descripcion(df_prev.columns)
-                        if cols_desc_detectadas:
-                            hoja_raw_valida = True
-                            st.caption(f"🔎 Columnas de descripción detectadas: **{', '.join(cols_desc_detectadas)}**")
-                            with st.expander("👀 Vista previa del archivo crudo"):
-                                st.caption(f"Columnas detectadas: {len(df_prev.columns)}")
-                                st.dataframe(df_prev, width="stretch", hide_index=True)
-                        else:
-                            hoja_raw_valida = False
-                            st.error(_mensaje_columnas_no_reconocidas(df_prev.columns))
-                else:
-                    st.error("El archivo no contiene hojas.")
-                    hoja_raw = None
-            except Exception as e:
-                st.error(f"No se pudo leer el archivo: {e}")
-                hoja_raw = None
-        else:
-            hoja_raw = None
-
-with c_maestro:
-    with st.container(border=True):
-        st.subheader("2. Maestro de Reglas")
-        st.caption("Reglas de marcas, condiciones y variables paramétricas.")
-
-        fuente_maestro = st.radio(
-            "Fuente del maestro",
-            ["Usar maestro incluido (UPS)", "Subir mi propio maestro"],
-            horizontal=True,
-        )
-
-        if fuente_maestro == "Subir mi propio maestro":
-            archivo_maestro_up = st.file_uploader(
-                "Arrastra tu archivo maestro .xlsx aquí",
-                type=["xlsx"], label_visibility="collapsed", key="up_maestro",
-            )
-            if archivo_maestro_up is not None:
-                archivo_maestro_up.seek(0)
-                maestro_bytes = archivo_maestro_up.getvalue()
-                maestro_nombre = archivo_maestro_up.name
-        else:
-            maestro_bytes, maestro_nombre = _cargar_maestro_incluido()
-            if maestro_bytes is None:
-                st.warning("⚠️ No se encontró el maestro incluido. Cambia a 'Subir mi propio maestro'.")
-
-        if maestro_bytes:
-            try:
-                maestro_info = CargarMaestro(ruta_excel=BytesIO(maestro_bytes))
-                linea_detectada = maestro_info.config_linea.get("LINEA_PRODUCTO", "Producto")
-                n_cond = len(getattr(maestro_info, "condicionales", []))
-                st.session_state.linea_detectada = linea_detectada
-                st.success(f"✅ **Maestro:** {maestro_nombre} | **Línea:** {linea_detectada} | **Reglas activas:** {n_cond}")
-            except Exception as e:
-                st.warning(f"Error al leer el maestro: {e}")
-
-# =====================================================================
-# SECCIÓN 2: CONFIGURACIÓN DE IA
-# =====================================================================
-st.write("") # Espaciador
-with st.container(border=True):
-    st.markdown("### 🤖 Rescate por IA Generativa")
-    st.caption("Delega a Gemini el análisis de las descripciones que el motor de reglas no logre resolver. *(Opcional pero recomendado)*.")
-    
-    if not GENAI_DISPONIBLE:
-        st.error("⚠️ El paquete 'google-genai' no está instalado. Instálalo con: pip install google-genai")
-        usar_ia = False
-        api_key = ""
-        modelo_ia = config.MODELO_IA_DEFAULT
-    else:
-        usar_ia = st.toggle(
-            f"Activar motor de rescate por IA (Gemini · {config.MODELO_IA_DEFAULT})",
-            value=False,
-        )
-
-        api_key = None
-        modelo_ia = config.MODELO_IA_DEFAULT
-        if usar_ia:
-            c_key, c_rpm = st.columns([2, 1])
-            with c_key:
-                api_key = st.text_input(
-                    "API Key",
-                    type="password",
-                    value=_obtener_api_key_de_secrets(),
-                    help="Se toma de .streamlit/secrets.toml si existe; si no, pégala aquí.",
-                )
-                if not api_key:
-                    st.warning("Se requiere API Key de Gemini.")
-            with c_rpm:
-                rpm_limite = st.slider("Límite de Peticiones (RPM)", min_value=1, max_value=60, value=12)
-
-            c_modelo, c_test = st.columns([2, 1])
-            with c_modelo:
-                modelo_ia = st.selectbox(
-                    "Modelo de IA",
-                    config.MODELOS_IA_DISPONIBLES,
-                    index=config.MODELOS_IA_DISPONIBLES.index(config.MODELO_IA_DEFAULT),
-                    help="Si Google retira o renombra un modelo, elige otro de la lista sin cambiar código.",
-                )
-            with c_test:
-                st.write("")  # alinear con el selectbox
-                probar_conexion = st.button("🔌 Probar conexión", width="stretch")
-
-            if probar_conexion:
-                if api_key:
-                    with st.spinner("Probando conexión con Gemini..."):
-                        ok, detalle = _probar_api_key(api_key, modelo_ia)
-                    if ok:
-                        st.success(detalle)
-                    else:
-                        st.error(detalle)
-                else:
-                    st.warning("Ingresa una API Key primero.")
-
-# =====================================================================
-# SECCIÓN 3: ACCIÓN PRINCIPAL (PROCESAMIENTO)
-# =====================================================================
-st.write("") # Espaciador
-listo_para_procesar = (
-    archivo_raw and maestro_bytes and hoja_raw_valida
-    and (not usar_ia or api_key)
-    and not st.session_state.get("processing_active", False)
-)
-
-procesar = st.button(
-    "▶️ PROCESAR CLASIFICACIÓN",
-    type="primary",
-    width="stretch",
-    disabled=not listo_para_procesar
-)
-
-if procesar:
-    if st.session_state.get("processing_active"):
-        st.warning("⏳ Ya hay un procesamiento en curso. Espera a que termine.")
-    else:
-        linea = st.session_state.get("linea_detectada", "Producto")
-        archivo_raw.seek(0)
-        df_raw_bytes = archivo_raw.getvalue()
-
-        st.session_state.df_raw_bytes = df_raw_bytes
-        st.session_state.maestro_bytes = maestro_bytes
-        st.session_state.hoja_raw = hoja_raw
-        st.session_state.linea_producto = linea
-        st.session_state.archivo_origen = archivo_raw.name
-        st.session_state.hoja_origen = hoja_raw
-        st.session_state.modelo_ia_usado = (
-            f"Reglas + IA ({modelo_ia})" if usar_ia else "Reglas deterministas (sin IA)"
-        )
-
-        # Resetear estado de progreso
-        st.session_state.progress_pct = 0.0
-        st.session_state.progress_text = "Preparando procesamiento..."
-        st.session_state.progress_error = None
-        st.session_state.processing_done = False
-        st.session_state.processing_active = True
-        st.session_state._rerun_triggered = False
-
-        def _procesar_en_hilo(_raw_bytes, _maestro_bytes, _hoja, _usar_ia, _api_key, _rpm, _modelo):
-            """Wrapper que ejecuta el pipeline completo en un hilo background."""
-            try:
-                _df_raw, _maestro = ejecutar_pipeline_reglas_cached(
-                    _raw_bytes, _maestro_bytes, _hoja
-                )
-
-                _rescatador = None
-                if _usar_ia and _api_key:
-                    _rescatador = RescatadorIA(
-                        api_key=_api_key, maestro=_maestro, rpm_limite=_rpm, modelo=_modelo
-                    )
-
-                def _cb_progreso(fase, i, total):
-                    if not total or total <= 0:
-                        return
-                    pct = min(i / total, 1.0)
-                    if fase == "reglas":
-                        txt = f"Fase 1/2 · Reglas: {i:,} de {total:,} filas"
-                    else:
-                        txt = f"Fase 2/2 · IA: {i:,} de {total:,} descripciones"
-                    st.session_state.progress_pct = pct
-                    st.session_state.progress_text = txt
-
+            if archivo_raw is not None:
                 try:
-                    _df_resultado = procesar_dataframe_dinamico(
-                        _df_raw, _maestro, rescatador_ia=_rescatador, progreso_callback=_cb_progreso
-                    )
-                finally:
-                    if _rescatador is not None:
-                        _rescatador.cerrar()
+                    archivo_raw.seek(0)
+                    info_hojas = _listar_hojas_y_filas(archivo_raw.getvalue())
+                    nombres_hojas = [i["nombre"] for i in info_hojas]
 
-                # Mensaje final según resultado de la IA
-                if _rescatador is not None:
-                    _desde_cache = (
-                        _rescatador.descripciones_desde_cache_mem
-                        + _rescatador.descripciones_desde_cache_db
-                    )
-                    _via_api = _rescatador.descripciones_rescatadas_api
-                    if _via_api == 0 and _desde_cache == 0:
-                        _texto_final = "✅ Completado · Las reglas resolvieron todo"
-                    elif _via_api == 0:
-                        _texto_final = (
-                            f"✅ Completado · Caché IA: {_desde_cache:,} (sin gastar cuota)"
+                    if nombres_hojas:
+                        recomendada = _hoja_recomendada(info_hojas)
+                        idx_default = nombres_hojas.index(recomendada) if recomendada in nombres_hojas else 0
+                        hoja_raw = st.selectbox(
+                            "Hoja a procesar",
+                            nombres_hojas,
+                            index=idx_default,
+                            help="Se preseleccionó automáticamente la hoja con más datos.",
                         )
+                        filas_estimadas = info_hojas[idx_default]["filas"]
+                        cols_nombradas = info_hojas[idx_default].get("cols_nombradas", 0)
+                        st.caption(f"📄 Hoja **{hoja_raw}** — ~{filas_estimadas:,} filas · {cols_nombradas} columnas")
+
+                        # Validación temprana: la hoja debe tener columnas de
+                        # descripción reconocibles ANTES de permitir procesar.
+                        # Así el usuario descubre el problema aquí y no tras un error.
+                        df_prev = None
+                        try:
+                            df_prev = _vista_previa_cruda(archivo_raw.getvalue(), hoja_raw)
+                        except Exception as e:
+                            st.error(f"No se pudo leer la hoja '{hoja_raw}': {e}")
+
+                        if df_prev is not None:
+                            cols_desc_detectadas = identificar_columnas_descripcion(df_prev.columns)
+                            if cols_desc_detectadas:
+                                hoja_raw_valida = True
+                                st.caption(f"🔎 Columnas de descripción detectadas: **{', '.join(cols_desc_detectadas)}**")
+                                with st.expander("👀 Vista previa del archivo crudo"):
+                                    st.caption(f"Columnas detectadas: {len(df_prev.columns)}")
+                                    st.dataframe(df_prev, width="stretch", hide_index=True)
+                            else:
+                                hoja_raw_valida = False
+                                st.error(_mensaje_columnas_no_reconocidas(df_prev.columns))
                     else:
-                        _texto_final = (
-                            f"✅ Completado · IA rescató {_via_api:,} "
-                            f"(+{_desde_cache:,} desde caché)"
-                        )
-                else:
-                    _texto_final = "✅ Completado · Solo reglas deterministas"
+                        st.error("El archivo no contiene hojas.")
+                        hoja_raw = None
+                except Exception as e:
+                    st.error(f"No se pudo leer el archivo: {e}")
+                    hoja_raw = None
+            else:
+                hoja_raw = None
 
-                st.session_state.progress_pct = 1.0
-                st.session_state.progress_text = _texto_final
+    with c_maestro:
+        with st.container(border=True):
+            st.subheader("2. Maestro de Reglas")
+            st.caption("Reglas de marcas, condiciones y variables paramétricas.")
 
-                # Guardar resultado en session_state
-                st.session_state.df_resultado = _df_resultado
-                st.session_state.proceso_completado = True
+            fuente_maestro = st.radio(
+                "Fuente del maestro",
+                ["Usar maestro incluido (UPS)", "Subir mi propio maestro"],
+                horizontal=True,
+            )
 
-                # ---- KPIs ----
-                _total_filas = len(_df_resultado)
-                _kpis = {
-                    "total": _total_filas, "rescatados": 0, "cache": 0, "nuevas": 0, "errores": 0,
-                    "con_producto": 0, "sin_producto": 0, "sin_marca": 0, "pendientes": 0,
-                }
+            if fuente_maestro == "Subir mi propio maestro":
+                archivo_maestro_up = st.file_uploader(
+                    "Arrastra tu archivo maestro .xlsx aquí",
+                    type=["xlsx"], label_visibility="collapsed", key="up_maestro",
+                )
+                if archivo_maestro_up is not None:
+                    archivo_maestro_up.seek(0)
+                    maestro_bytes = archivo_maestro_up.getvalue()
+                    maestro_nombre = archivo_maestro_up.name
+            else:
+                maestro_bytes, maestro_nombre = _cargar_maestro_incluido()
+                if maestro_bytes is None:
+                    st.warning("⚠️ No se encontró el maestro incluido. Cambia a 'Subir mi propio maestro'.")
 
-                if "Producto_Declarado" in _df_resultado:
-                    _kpis["con_producto"] = int(_df_resultado["Producto_Declarado"].notna().sum())
-                    _kpis["sin_producto"] = int(_df_resultado["Producto_Declarado"].isna().sum())
+            if maestro_bytes:
+                try:
+                    maestro_info = CargarMaestro(ruta_excel=BytesIO(maestro_bytes))
+                    linea_detectada = maestro_info.config_linea.get("LINEA_PRODUCTO", "Producto")
+                    n_cond = len(getattr(maestro_info, "condicionales", []))
+                    st.session_state.linea_detectada = linea_detectada
+                    st.success(f"✅ **Maestro:** {maestro_nombre} | **Línea:** {linea_detectada} | **Reglas activas:** {n_cond}")
+                except Exception as e:
+                    st.warning(f"Error al leer el maestro: {e}")
 
-                if "Marca_Extraida" in _df_resultado:
-                    _kpis["sin_marca"] = int(
-                        _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER).sum()
+    # =====================================================================
+    # SECCIÓN 2: CONFIGURACIÓN DE IA
+    # =====================================================================
+    st.write("") # Espaciador
+    with st.container(border=True):
+        st.markdown("### 🤖 Rescate por IA Generativa")
+        st.caption("Delega a Gemini el análisis de las descripciones que el motor de reglas no logre resolver. *(Opcional pero recomendado)*.")
+    
+        if not GENAI_DISPONIBLE:
+            st.error("⚠️ El paquete 'google-genai' no está instalado. Instálalo con: pip install google-genai")
+            usar_ia = False
+            api_key = ""
+            modelo_ia = config.MODELO_IA_DEFAULT
+        else:
+            usar_ia = st.toggle(
+                f"Activar motor de rescate por IA (Gemini · {config.MODELO_IA_DEFAULT})",
+                value=False,
+            )
+
+            api_key = None
+            modelo_ia = config.MODELO_IA_DEFAULT
+            if usar_ia:
+                c_key, c_rpm = st.columns([2, 1])
+                with c_key:
+                    api_key = st.text_input(
+                        "API Key",
+                        type="password",
+                        value=_obtener_api_key_de_secrets(),
+                        help="Se toma de .streamlit/secrets.toml si existe; si no, pégala aquí.",
+                    )
+                    if not api_key:
+                        st.warning("Se requiere API Key de Gemini.")
+                with c_rpm:
+                    rpm_limite = st.slider("Límite de Peticiones (RPM)", min_value=1, max_value=60, value=12)
+
+                c_modelo, c_test = st.columns([2, 1])
+                with c_modelo:
+                    modelo_ia = st.selectbox(
+                        "Modelo de IA",
+                        config.MODELOS_IA_DISPONIBLES,
+                        index=config.MODELOS_IA_DISPONIBLES.index(config.MODELO_IA_DEFAULT),
+                        help="Si Google retira o renombra un modelo, elige otro de la lista sin cambiar código.",
+                    )
+                with c_test:
+                    st.write("")  # alinear con el selectbox
+                    probar_conexion = st.button("🔌 Probar conexión", width="stretch")
+
+                if probar_conexion:
+                    if api_key:
+                        with st.spinner("Probando conexión con Gemini..."):
+                            ok, detalle = _probar_api_key(api_key, modelo_ia)
+                        if ok:
+                            st.success(detalle)
+                        else:
+                            st.error(detalle)
+                    else:
+                        st.warning("Ingresa una API Key primero.")
+
+    # =====================================================================
+    # SECCIÓN 3: ACCIÓN PRINCIPAL (PROCESAMIENTO)
+    # =====================================================================
+    st.write("") # Espaciador
+    listo_para_procesar = (
+        archivo_raw and maestro_bytes and hoja_raw_valida
+        and (not usar_ia or api_key)
+        and not st.session_state.get("processing_active", False)
+    )
+
+    procesar = st.button(
+        "▶️ PROCESAR CLASIFICACIÓN",
+        type="primary",
+        width="stretch",
+        disabled=not listo_para_procesar
+    )
+
+    if procesar:
+        if st.session_state.get("processing_active"):
+            st.warning("⏳ Ya hay un procesamiento en curso. Espera a que termine.")
+        else:
+            linea = st.session_state.get("linea_detectada", "Producto")
+            archivo_raw.seek(0)
+            df_raw_bytes = archivo_raw.getvalue()
+
+            st.session_state.df_raw_bytes = df_raw_bytes
+            st.session_state.maestro_bytes = maestro_bytes
+            st.session_state.hoja_raw = hoja_raw
+            st.session_state.linea_producto = linea
+            st.session_state.archivo_origen = archivo_raw.name
+            st.session_state.hoja_origen = hoja_raw
+            st.session_state.modelo_ia_usado = (
+                f"Reglas + IA ({modelo_ia})" if usar_ia else "Reglas deterministas (sin IA)"
+            )
+
+            # Resetear estado de progreso
+            st.session_state.progress_pct = 0.0
+            st.session_state.progress_text = "Preparando procesamiento..."
+            st.session_state.progress_error = None
+            st.session_state.processing_done = False
+            st.session_state.processing_active = True
+            st.session_state._rerun_triggered = False
+
+            def _procesar_en_hilo(_raw_bytes, _maestro_bytes, _hoja, _usar_ia, _api_key, _rpm, _modelo):
+                """Wrapper que ejecuta el pipeline completo en un hilo background."""
+                try:
+                    _df_raw, _maestro = ejecutar_pipeline_reglas_cached(
+                        _raw_bytes, _maestro_bytes, _hoja
                     )
 
-                _pend_mask = pd.Series(False, index=_df_resultado.index)
-                if "Producto_Declarado" in _df_resultado:
-                    _pend_mask |= _df_resultado["Producto_Declarado"].isna()
-                if "Marca_Extraida" in _df_resultado:
-                    _pend_mask |= _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER)
-                _kpis["pendientes"] = int(_pend_mask.sum())
-                st.session_state.df_pendientes = _df_resultado[_pend_mask].copy()
-
-                if _rescatador is not None:
-                    _kpis["rescatados"] = int(_df_resultado["Rescatado_Por_IA"].sum()) if "Rescatado_Por_IA" in _df_resultado else 0
-                    _kpis["cache"] = _rescatador.llamadas_desde_cache
-                    _kpis["errores"] = _rescatador.errores
-
-                    _propuestas = getattr(_rescatador, "propuestas_aprendizaje", None)
-                    if _propuestas and (_propuestas.get("nuevas_marcas") or _propuestas.get("nuevas_caracteristicas")):
-                        _buf_opt = BytesIO()
-                        _resumen_opt = guardar_maestro_optimizado(
-                            ruta_maestro_original=BytesIO(_maestro_bytes), propuestas=_propuestas, ruta_salida=_buf_opt
+                    _rescatador = None
+                    if _usar_ia and _api_key:
+                        _rescatador = RescatadorIA(
+                            api_key=_api_key, maestro=_maestro, rpm_limite=_rpm, modelo=_modelo
                         )
-                        st.session_state.maestro_opt_data = _buf_opt.getvalue()
-                        st.session_state.resumen_opt = _resumen_opt
-                        _kpis["nuevas"] = _resumen_opt.get("marcas_agregadas", 0) + _resumen_opt.get("caracteristicas_agregadas", 0)
+
+                    def _cb_progreso(fase, i, total):
+                        if not total or total <= 0:
+                            return
+                        pct = min(i / total, 1.0)
+                        if fase == "reglas":
+                            txt = f"Fase 1/2 · Reglas: {i:,} de {total:,} filas"
+                        else:
+                            txt = f"Fase 2/2 · IA: {i:,} de {total:,} descripciones"
+                        st.session_state.progress_pct = pct
+                        st.session_state.progress_text = txt
+
+                    try:
+                        _df_resultado = procesar_dataframe_dinamico(
+                            _df_raw, _maestro, rescatador_ia=_rescatador, progreso_callback=_cb_progreso
+                        )
+                    finally:
+                        if _rescatador is not None:
+                            _rescatador.cerrar()
+
+                    # Mensaje final según resultado de la IA
+                    if _rescatador is not None:
+                        _desde_cache = (
+                            _rescatador.descripciones_desde_cache_mem
+                            + _rescatador.descripciones_desde_cache_db
+                        )
+                        _via_api = _rescatador.descripciones_rescatadas_api
+                        if _via_api == 0 and _desde_cache == 0:
+                            _texto_final = "✅ Completado · Las reglas resolvieron todo"
+                        elif _via_api == 0:
+                            _texto_final = (
+                                f"✅ Completado · Caché IA: {_desde_cache:,} (sin gastar cuota)"
+                            )
+                        else:
+                            _texto_final = (
+                                f"✅ Completado · IA rescató {_via_api:,} "
+                                f"(+{_desde_cache:,} desde caché)"
+                            )
+                    else:
+                        _texto_final = "✅ Completado · Solo reglas deterministas"
+
+                    st.session_state.progress_pct = 1.0
+                    st.session_state.progress_text = _texto_final
+
+                    # Guardar resultado en session_state
+                    st.session_state.df_resultado = _df_resultado
+                    st.session_state.proceso_completado = True
+
+                    # ---- KPIs ----
+                    _total_filas = len(_df_resultado)
+                    _kpis = {
+                        "total": _total_filas, "rescatados": 0, "cache": 0, "nuevas": 0, "errores": 0,
+                        "con_producto": 0, "sin_producto": 0, "sin_marca": 0, "pendientes": 0,
+                    }
+
+                    if "Producto_Declarado" in _df_resultado:
+                        _kpis["con_producto"] = int(_df_resultado["Producto_Declarado"].notna().sum())
+                        _kpis["sin_producto"] = int(_df_resultado["Producto_Declarado"].isna().sum())
+
+                    if "Marca_Extraida" in _df_resultado:
+                        _kpis["sin_marca"] = int(
+                            _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER).sum()
+                        )
+
+                    _pend_mask = pd.Series(False, index=_df_resultado.index)
+                    if "Producto_Declarado" in _df_resultado:
+                        _pend_mask |= _df_resultado["Producto_Declarado"].isna()
+                    if "Marca_Extraida" in _df_resultado:
+                        _pend_mask |= _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER)
+                    _kpis["pendientes"] = int(_pend_mask.sum())
+                    st.session_state.df_pendientes = _df_resultado[_pend_mask].copy()
+
+                    if _rescatador is not None:
+                        _kpis["rescatados"] = int(_df_resultado["Rescatado_Por_IA"].sum()) if "Rescatado_Por_IA" in _df_resultado else 0
+                        _kpis["cache"] = _rescatador.llamadas_desde_cache
+                        _kpis["errores"] = _rescatador.errores
+
+                        _propuestas = getattr(_rescatador, "propuestas_aprendizaje", None)
+                        if _propuestas and (_propuestas.get("nuevas_marcas") or _propuestas.get("nuevas_caracteristicas")):
+                            _buf_opt = BytesIO()
+                            _resumen_opt = guardar_maestro_optimizado(
+                                ruta_maestro_original=BytesIO(_maestro_bytes), propuestas=_propuestas, ruta_salida=_buf_opt
+                            )
+                            st.session_state.maestro_opt_data = _buf_opt.getvalue()
+                            st.session_state.resumen_opt = _resumen_opt
+                            _kpis["nuevas"] = _resumen_opt.get("marcas_agregadas", 0) + _resumen_opt.get("caracteristicas_agregadas", 0)
+                        else:
+                            st.session_state.maestro_opt_data = None
+                            st.session_state.resumen_opt = None
                     else:
                         st.session_state.maestro_opt_data = None
                         st.session_state.resumen_opt = None
-                else:
-                    st.session_state.maestro_opt_data = None
-                    st.session_state.resumen_opt = None
 
-                st.session_state.kpis = _kpis
+                    st.session_state.kpis = _kpis
 
-                # ---- Buffer Excel ----
-                _df_export = sanitizar_dataframe_para_excel(_df_resultado)
-                _cobertura_pct = f"{_kpis['con_producto'] / max(_total_filas, 1):.1%}"
-                _df_resumen = pd.DataFrame([
-                    ("Fecha de proceso", datetime.now().strftime("%Y-%m-%d %H:%M")),
-                    ("Archivo origen", st.session_state.get("archivo_origen", "")),
-                    ("Hoja procesada", str(st.session_state.get("hoja_origen", ""))),
-                    ("Línea de producto", st.session_state.get("linea_producto", "")),
-                    ("Motor de clasificación", st.session_state.get("modelo_ia_usado", "")),
-                    ("Total de filas", f"{_kpis['total']:,}"),
-                    ("Con producto identificado", f"{_kpis['con_producto']:,} ({_cobertura_pct})"),
-                    ("Sin producto identificado", f"{_kpis['sin_producto']:,}"),
-                    ("Sin marca (genérica)", f"{_kpis['sin_marca']:,}"),
-                    ("Pendientes de revisión", f"{_kpis['pendientes']:,}"),
-                    ("Rescatados por IA", f"{_kpis['rescatados']:,}"),
-                    ("Resueltos desde caché IA (ahorro)", f"{_kpis['cache']:,}"),
-                    ("Nuevas reglas aprendidas", f"+{_kpis['nuevas']}"),
-                    ("Errores de IA", f"{_kpis['errores']:,}"),
-                ], columns=["Parametro", "Valor"])
+                    # ---- Buffer Excel ----
+                    _df_export = sanitizar_dataframe_para_excel(_df_resultado)
+                    _cobertura_pct = f"{_kpis['con_producto'] / max(_total_filas, 1):.1%}"
+                    _df_resumen = pd.DataFrame([
+                        ("Fecha de proceso", datetime.now().strftime("%Y-%m-%d %H:%M")),
+                        ("Archivo origen", st.session_state.get("archivo_origen", "")),
+                        ("Hoja procesada", str(st.session_state.get("hoja_origen", ""))),
+                        ("Línea de producto", st.session_state.get("linea_producto", "")),
+                        ("Motor de clasificación", st.session_state.get("modelo_ia_usado", "")),
+                        ("Total de filas", f"{_kpis['total']:,}"),
+                        ("Con producto identificado", f"{_kpis['con_producto']:,} ({_cobertura_pct})"),
+                        ("Sin producto identificado", f"{_kpis['sin_producto']:,}"),
+                        ("Sin marca (genérica)", f"{_kpis['sin_marca']:,}"),
+                        ("Pendientes de revisión", f"{_kpis['pendientes']:,}"),
+                        ("Rescatados por IA", f"{_kpis['rescatados']:,}"),
+                        ("Resueltos desde caché IA (ahorro)", f"{_kpis['cache']:,}"),
+                        ("Nuevas reglas aprendidas", f"+{_kpis['nuevas']}"),
+                        ("Errores de IA", f"{_kpis['errores']:,}"),
+                    ], columns=["Parametro", "Valor"])
 
-                _output_buf = BytesIO()
-                with pd.ExcelWriter(_output_buf, engine="openpyxl") as _writer:
-                    _df_resumen.to_excel(_writer, index=False, sheet_name="Resumen")
-                    _df_export.to_excel(_writer, index=False, sheet_name="Clasificacion")
-                    for _nh, _dh in (("Resumen", _df_resumen), ("Clasificacion", _df_export)):
-                        try:
-                            aplicar_estilo_hoja_excel(_writer.sheets[_nh], _dh)
-                        except Exception:
-                            pass
-                st.session_state.df_export_data = _output_buf.getvalue()
+                    _output_buf = BytesIO()
+                    with pd.ExcelWriter(_output_buf, engine="openpyxl") as _writer:
+                        _df_resumen.to_excel(_writer, index=False, sheet_name="Resumen")
+                        _df_export.to_excel(_writer, index=False, sheet_name="Clasificacion")
+                        for _nh, _dh in (("Resumen", _df_resumen), ("Clasificacion", _df_export)):
+                            try:
+                                aplicar_estilo_hoja_excel(_writer.sheets[_nh], _dh)
+                            except Exception:
+                                pass
+                    st.session_state.df_export_data = _output_buf.getvalue()
 
-            except Exception as e:
-                st.session_state.progress_error = str(e)
-                st.session_state.progress_text = f"❌ Error: {e}"
-            finally:
-                st.session_state.processing_done = True
+                except Exception as e:
+                    st.session_state.progress_error = str(e)
+                    st.session_state.progress_text = f"❌ Error: {e}"
+                finally:
+                    st.session_state.processing_done = True
 
-        # Lanzar hilo de procesamiento
-        _thread = threading.Thread(
-            target=_procesar_en_hilo,
-            args=(df_raw_bytes, maestro_bytes, hoja_raw, usar_ia, api_key, rpm_limite, modelo_ia),
-            daemon=True,
-        )
-        _thread.start()
-
-# =====================================================================
-# SECCIÓN 3b: INDICADOR DE PROCESAMIENTO (se muestra en reruns posteriores)
-# =====================================================================
-if (
-    st.session_state.get("processing_active", False)
-    and not st.session_state.get("processing_done", False)
-):
-    st.write("") # Espaciador
-    @st.fragment(run_every="500ms")
-    def _fragmento_progreso_rerun():
-        pct = st.session_state.get("progress_pct", 0.0)
-        texto = st.session_state.get("progress_text", "Iniciando...")
-        error = st.session_state.get("progress_error")
-        done = st.session_state.get("processing_done", False)
-
-        st.progress(pct, text=texto)
-
-        if error:
-            st.error(f"❌ {error}")
-            st.session_state.processing_active = False
-        elif done:
-            st.session_state.processing_active = False
-            if not st.session_state.get("_rerun_triggered"):
-                st.session_state._rerun_triggered = True
-                st.rerun()
-
-    _fragmento_progreso_rerun()
-
-# =====================================================================
-# SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)
-# =====================================================================
-if st.session_state.proceso_completado and st.session_state.df_resultado is not None:
-    st.write("") # Espaciador
-    st.divider()
-    
-    col_titulo, col_tag = st.columns([4, 1])
-    with col_titulo:
-        st.markdown("### 📥 Resultados y Descargas")
-    with col_tag:
-        st.success("✅ Proceso Finalizado")
-
-    # KPIs al estilo Dashboard
-    kpis = st.session_state.kpis
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
-    m2.metric("Rescatados IA", f"{kpis.get('rescatados', 0):,}")
-    m3.metric("Ahorro Caché", f"{kpis.get('cache', 0):,}")
-    m4.metric("Nuevas Reglas", f"+{kpis.get('nuevas', 0)}")
-    
-    if kpis.get("errores", 0) > 0:
-        st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
-
-    st.write("") # Espaciador
-
-    # ---- Cobertura del análisis (transparencia para el cliente) ----
-    total = max(kpis.get("total", 1), 1)
-    con_producto = kpis.get("con_producto", 0)
-    sin_producto = kpis.get("sin_producto", 0)
-    sin_marca = kpis.get("sin_marca", 0)
-    pendientes = kpis.get("pendientes", 0)
-
-    st.markdown("#### 🎯 Cobertura del análisis")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("✅ Con producto", f"{con_producto:,}", help="Filas donde se identificó el tipo de producto (ej. UPS).")
-    c2.metric("❌ Sin producto", f"{sin_producto:,}", help="Filas donde no se pudo identificar el producto.")
-    c3.metric("🏷️ Sin marca", f"{sin_marca:,}", help="Filas con marca genérica o sin marca.")
-    c4.metric("⚠️ Pendientes", f"{pendientes:,}", help="Filas incompletas (sin producto o sin marca).")
-    st.progress(min(con_producto / total, 1.0), text=f"Identificación de producto: {con_producto / total:.1%} del total")
-
-    # ---- Registros pendientes de revisión ----
-    df_pendientes = st.session_state.get("df_pendientes")
-    if pendientes > 0 and df_pendientes is not None and len(df_pendientes) > 0:
-        with st.expander(f"🔍 Ver los {pendientes:,} registros pendientes de revisión"):
-            st.caption("Registros donde no se identificó el producto o la marca quedó genérica. Descágalos para depurar el maestro.")
-            st.dataframe(df_pendientes.head(100), width="stretch", hide_index=True)
-            if len(df_pendientes) > 100:
-                st.caption(f"Mostrando 100 de {len(df_pendientes):,} filas. Descarga el Excel para ver todas.")
-            buffer_pend = BytesIO()
-            df_pend_export = sanitizar_dataframe_para_excel(df_pendientes)
-            with pd.ExcelWriter(buffer_pend, engine="openpyxl") as writer:
-                df_pend_export.to_excel(writer, index=False, sheet_name="Pendientes")
-                try:
-                    aplicar_estilo_hoja_excel(writer.sheets["Pendientes"], df_pend_export)
-                except Exception:
-                    pass
-            sufijo_fecha = datetime.now().strftime("%Y-%m-%d")
-            st.download_button(
-                label="📥 Descargar pendientes (Excel)",
-                data=buffer_pend.getvalue(),
-                file_name=f"Pendientes_{st.session_state.linea_producto}_{sufijo_fecha}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="btn_descarga_pendientes",
-                width="stretch",
+            # Lanzar hilo de procesamiento
+            _thread = threading.Thread(
+                target=_procesar_en_hilo,
+                args=(df_raw_bytes, maestro_bytes, hoja_raw, usar_ia, api_key, rpm_limite, modelo_ia),
+                daemon=True,
             )
+            _thread.start()
 
-    st.write("") # Espaciador
+    # =====================================================================
+    # SECCIÓN 3b: INDICADOR DE PROCESAMIENTO (se muestra en reruns posteriores)
+    # =====================================================================
+    if (
+        st.session_state.get("processing_active", False)
+        and not st.session_state.get("processing_done", False)
+    ):
+        st.write("") # Espaciador
+        @st.fragment(run_every="500ms")
+        def _fragmento_progreso_rerun():
+            pct = st.session_state.get("progress_pct", 0.0)
+            texto = st.session_state.get("progress_text", "Iniciando...")
+            error = st.session_state.get("progress_error")
+            done = st.session_state.get("processing_done", False)
+
+            st.progress(pct, text=texto)
+
+            if error:
+                st.error(f"❌ {error}")
+                st.session_state.processing_active = False
+            elif done:
+                st.session_state.processing_active = False
+                if not st.session_state.get("_rerun_triggered"):
+                    st.session_state._rerun_triggered = True
+                    st.rerun()
+
+        _fragmento_progreso_rerun()
+
+    # =====================================================================
+    # SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)
+    # =====================================================================
+    if st.session_state.proceso_completado and st.session_state.df_resultado is not None:
+        st.write("") # Espaciador
+        st.divider()
     
-    # Botones de Descarga Amplios
-    d1, d2 = st.columns(2)
-    with d1:
-        if st.session_state.maestro_opt_data is not None:
-            st.download_button(
-                label=f"🧠 Descargar Maestro Optimizado",
-                data=st.session_state.maestro_opt_data,
-                file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width="stretch",
-                key="btn_descarga_maestro"
-            )
-        else:
-            st.button("🧠 Maestro Optimizado (Sin aprendizajes nuevos)", disabled=True, width="stretch")
+        col_titulo, col_tag = st.columns([4, 1])
+        with col_titulo:
+            st.markdown("### 📥 Resultados y Descargas")
+        with col_tag:
+            st.success("✅ Proceso Finalizado")
+
+        # KPIs al estilo Dashboard
+        kpis = st.session_state.kpis
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
+        m2.metric("Rescatados IA", f"{kpis.get('rescatados', 0):,}")
+        m3.metric("Ahorro Caché", f"{kpis.get('cache', 0):,}")
+        m4.metric("Nuevas Reglas", f"+{kpis.get('nuevas', 0)}")
+    
+        if kpis.get("errores", 0) > 0:
+            st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
+
+        st.write("") # Espaciador
+
+        # ---- Cobertura del análisis (transparencia para el cliente) ----
+        total = max(kpis.get("total", 1), 1)
+        con_producto = kpis.get("con_producto", 0)
+        sin_producto = kpis.get("sin_producto", 0)
+        sin_marca = kpis.get("sin_marca", 0)
+        pendientes = kpis.get("pendientes", 0)
+
+        st.markdown("#### 🎯 Cobertura del análisis")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("✅ Con producto", f"{con_producto:,}", help="Filas donde se identificó el tipo de producto (ej. UPS).")
+        c2.metric("❌ Sin producto", f"{sin_producto:,}", help="Filas donde no se pudo identificar el producto.")
+        c3.metric("🏷️ Sin marca", f"{sin_marca:,}", help="Filas con marca genérica o sin marca.")
+        c4.metric("⚠️ Pendientes", f"{pendientes:,}", help="Filas incompletas (sin producto o sin marca).")
+        st.progress(min(con_producto / total, 1.0), text=f"Identificación de producto: {con_producto / total:.1%} del total")
+
+        # ---- Registros pendientes de revisión ----
+        df_pendientes = st.session_state.get("df_pendientes")
+        if pendientes > 0 and df_pendientes is not None and len(df_pendientes) > 0:
+            with st.expander(f"🔍 Ver los {pendientes:,} registros pendientes de revisión"):
+                st.caption("Registros donde no se identificó el producto o la marca quedó genérica. Descágalos para depurar el maestro.")
+                st.dataframe(df_pendientes.head(100), width="stretch", hide_index=True)
+                if len(df_pendientes) > 100:
+                    st.caption(f"Mostrando 100 de {len(df_pendientes):,} filas. Descarga el Excel para ver todas.")
+                buffer_pend = BytesIO()
+                df_pend_export = sanitizar_dataframe_para_excel(df_pendientes)
+                with pd.ExcelWriter(buffer_pend, engine="openpyxl") as writer:
+                    df_pend_export.to_excel(writer, index=False, sheet_name="Pendientes")
+                    try:
+                        aplicar_estilo_hoja_excel(writer.sheets["Pendientes"], df_pend_export)
+                    except Exception:
+                        pass
+                sufijo_fecha = datetime.now().strftime("%Y-%m-%d")
+                st.download_button(
+                    label="📥 Descargar pendientes (Excel)",
+                    data=buffer_pend.getvalue(),
+                    file_name=f"Pendientes_{st.session_state.linea_producto}_{sufijo_fecha}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_descarga_pendientes",
+                    width="stretch",
+                )
+
+        st.write("") # Espaciador
+    
+        # Botones de Descarga Amplios
+        d1, d2 = st.columns(2)
+        with d1:
+            if st.session_state.maestro_opt_data is not None:
+                st.download_button(
+                    label=f"🧠 Descargar Maestro Optimizado",
+                    data=st.session_state.maestro_opt_data,
+                    file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    width="stretch",
+                    key="btn_descarga_maestro"
+                )
+            else:
+                st.button("🧠 Maestro Optimizado (Sin aprendizajes nuevos)", disabled=True, width="stretch")
             
-    with d2:
-        if st.session_state.df_export_data is not None:
-            st.download_button(
-                label=f"📊 Descargar Resultado (Excel)",
-                data=st.session_state.df_export_data,
-                file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width="stretch",
-                key="btn_descarga_resultado"
+        with d2:
+            if st.session_state.df_export_data is not None:
+                st.download_button(
+                    label=f"📊 Descargar Resultado (Excel)",
+                    data=st.session_state.df_export_data,
+                    file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    width="stretch",
+                    key="btn_descarga_resultado"
+                )
+
+        # Vista previa con filtro de texto (solo columnas relevantes -> rápido)
+        st.write("") # Espaciador
+        st.markdown("#### 📋 Vista Previa de los Datos")
+        df_resultado = st.session_state.df_resultado
+        filtro = st.text_input("🔎 Filtrar por descripción, marca o producto (texto libre)", value="")
+        df_vista = df_resultado
+        if filtro.strip():
+            cols_filtro = [
+                c for c in df_resultado.columns
+                if any(k in str(c).upper() for k in COLS_BUSQUEDA_FILTRO)
+            ]
+            if not cols_filtro:  # archivo con nombres atípicos: usar las primeras columnas
+                cols_filtro = list(df_resultado.columns[:6])
+            mask = df_resultado[cols_filtro].astype(str).apply(
+                lambda col: col.str.contains(filtro.strip(), case=False, na=False)
+            ).any(axis=1)
+            df_vista = df_resultado[mask]
+        n_mostradas = min(len(df_vista), FILAS_VISTA_PREVIA)
+        st.caption(
+            f"Mostrando {n_mostradas:,} de {len(df_vista):,} filas coincidentes "
+            f"(total del archivo: {len(df_resultado):,})"
+        )
+        st.dataframe(df_vista.head(FILAS_VISTA_PREVIA), width="stretch", hide_index=True)
+
+# =====================================================================
+# SECCIÓN 5: CREAR MAESTRO (DENTRO DEL TAB CREAR)
+# =====================================================================
+with tab_crear:
+    from src.creador_maestro import (
+        muestrear_veritrade,
+        generar_maestro_con_ia,
+        guardar_maestro_nuevo,
+        MUESTRA_DEFAULT,
+    )
+
+    st.write("") # Espaciador
+    st.markdown("### 🔧 Generador Automático de Maestros")
+    st.caption(
+        "Crea un maestro de clasificación a partir de un archivo Veritrade crudo. "
+        "La IA analiza una muestra representativa y genera todas las hojas del maestro "
+        "con marcas, características, patrones técnicos y reglas condicionales."
+    )
+
+    # ------------------------------------------------------------------
+    # Session state para el generador
+    # ------------------------------------------------------------------
+    if "creador_step" not in st.session_state:
+        st.session_state.creador_step = 0  # 0=upload, 1=form, 2=muestra, 3=generando, 4=resultado
+    if "creador_muestra" not in st.session_state:
+        st.session_state.creador_muestra = None
+    if "creador_hojas" not in st.session_state:
+        st.session_state.creador_hojas = None
+    if "creador_maestro_bytes" not in st.session_state:
+        st.session_state.creador_maestro_bytes = None
+    if "creador_producto" not in st.session_state:
+        st.session_state.creador_producto = ""
+    if "creador_dominio" not in st.session_state:
+        st.session_state.creador_dominio = {}
+    if "creador_error" not in st.session_state:
+        st.session_state.creador_error = None
+    if "creador_progreso" not in st.session_state:
+        st.session_state.creador_progreso = ""
+
+    # ------------------------------------------------------------------
+    # PASO 1: Subir Veritrade crudo + Template
+    # ------------------------------------------------------------------
+    st.markdown("#### 📁 Paso 1: Archivos de entrada")
+
+    col_crudo, col_template = st.columns(2)
+
+    with col_crudo:
+        with st.container(border=True):
+            st.markdown("**Veritrade crudo del PM**")
+            st.caption("Archivo .xlsx con las importaciones de tu categoría.")
+            archivo_crudo_creador = st.file_uploader(
+                "Arrastra tu Veritrade .xlsx",
+                type=["xlsx"],
+                label_visibility="collapsed",
+                key="up_crudo_creador",
+            )
+            if archivo_crudo_creador:
+                try:
+                    info_hojas_crudo = _listar_hojas_y_filas(archivo_crudo_creador.getvalue())
+                    nombres_hojas_crudo = [i["nombre"] for i in info_hojas_crudo]
+                    if nombres_hojas_crudo:
+                        rec_crudo = _hoja_recomendada(info_hojas_crudo)
+                        idx_crudo = nombres_hojas_crudo.index(rec_crudo) if rec_crudo in nombres_hojas_crudo else 0
+                        hoja_crudo_creador = st.selectbox(
+                            "Hoja de datos",
+                            nombres_hojas_crudo,
+                            index=idx_crudo,
+                            key="hoja_crudo_creador",
+                        )
+                        filas_crudo = info_hojas_crudo[idx_crudo]["filas"]
+                        st.caption(f"📄 **{hoja_crudo_creador}** — ~{filas_crudo:,} filas")
+                    else:
+                        hoja_crudo_creador = None
+                        st.error("El archivo no tiene hojas.")
+                except Exception as e:
+                    hoja_crudo_creador = None
+                    st.error(f"Error al leer: {e}")
+            else:
+                hoja_crudo_creador = None
+
+    with col_template:
+        with st.container(border=True):
+            st.markdown("**Maestro plantilla (referencia)**")
+            st.caption("Define el formato de salida. Se usa el incluido por defecto.")
+            fuente_template = st.radio(
+                "Fuente del template",
+                ["Usar plantilla incluida", "Subir mi plantilla"],
+                horizontal=True,
+                key="fuente_template",
+            )
+            template_bytes = None
+            if fuente_template == "Usar plantilla incluida":
+                ruta_tpl = BASE_DIR / "data" / "maestro" / "Maestro_Plantilla.xlsx"
+                if ruta_tpl.exists():
+                    template_bytes = ruta_tpl.read_bytes()
+                    st.success(f"✅ Plantilla: {ruta_tpl.name}")
+                else:
+                    # Fallback al maestro UPS si no hay plantilla
+                    ruta_tpl = BASE_DIR / "data" / "maestro" / "Maestro_UPS_v2.xlsx"
+                    if ruta_tpl.exists():
+                        template_bytes = ruta_tpl.read_bytes()
+                        st.info(f"ℹ️ Usando maestro UPS como referencia: {ruta_tpl.name}")
+                    else:
+                        st.warning("⚠️ No se encontró ninguna plantilla.")
+            else:
+                up_tpl = st.file_uploader(
+                    "Sube tu plantilla .xlsx",
+                    type=["xlsx"],
+                    label_visibility="collapsed",
+                    key="up_template",
+                )
+                if up_tpl:
+                    up_tpl.seek(0)
+                    template_bytes = up_tpl.getvalue()
+
+    listo_paso1 = archivo_crudo_creador is not None and template_bytes is not None
+    st.write("")
+
+    # ------------------------------------------------------------------
+    # PASO 2: Formulario de dominio del PM
+    # ------------------------------------------------------------------
+    if listo_paso1:
+        st.markdown("#### 🧠 Paso 2: Contexto de tu producto")
+        st.caption("Estas respuestas ayudan a la IA a generar reglas más precisas para tu categoría.")
+
+        with st.form("form_dominio"):
+            c_producto, c_n_muestra = st.columns([2, 1])
+            with c_producto:
+                producto_nombre = st.text_input(
+                    "Nombre del producto a clasificar *",
+                    value=st.session_state.creador_producto or "",
+                    placeholder="Ej: Estabilizadores, Baterías, Cables...",
+                    help="Nombre corto de la categoría. Se usará en la hoja de Config y como marca por defecto.",
+                )
+            with c_n_muestra:
+                n_muestra = st.slider(
+                    "Tamaño de muestra",
+                    min_value=80,
+                    max_value=200,
+                    value=MUESTRA_DEFAULT,
+                    help="Más filas = mejor cobertura pero más tokens. 150 es un buen equilibrio.",
+                )
+
+            caracteristicas = st.text_area(
+                "¿Qué 3-5 características usas para diferenciar productos de esta categoría?",
+                value=st.session_state.creador_dominio.get("caracteristicas", ""),
+                placeholder="Ej: Tecnología (online/trifásico), Fases, Formato (rack/piso), Gama (básica/media/alta), Capacidad...",
+                height=80,
             )
 
-    # Vista previa con filtro de texto (solo columnas relevantes -> rápido)
-    st.write("") # Espaciador
-    st.markdown("#### 📋 Vista Previa de los Datos")
-    df_resultado = st.session_state.df_resultado
-    filtro = st.text_input("🔎 Filtrar por descripción, marca o producto (texto libre)", value="")
-    df_vista = df_resultado
-    if filtro.strip():
-        cols_filtro = [
-            c for c in df_resultado.columns
-            if any(k in str(c).upper() for k in COLS_BUSQUEDA_FILTRO)
+            marcas_conocidas = st.text_area(
+                "¿Qué marcas conoces que son comunes? (opcional pero ayuda)",
+                value=st.session_state.creador_dominio.get("marcas_conocidas", ""),
+                placeholder="Ej: APC, Eaton, CyberPower, Lestar, Schneider, General Electric...",
+                height=60,
+            )
+
+            patrones_tecnicos = st.text_area(
+                "¿Hay patrones numéricos técnicos relevantes? (opcional)",
+                value=st.session_state.creador_dominio.get("patrones_tecnicos", ""),
+                placeholder="Ej: Voltaje (110V, 220V), Potencia (kVA, KW), Capacidad (Ah, Wh), Amperios...",
+                height=60,
+            )
+
+            submit_dominio = st.form_submit_button(
+                "✅ Confirmar y ver muestra",
+                type="primary",
+                width="stretch",
+            )
+
+        if submit_dominio:
+            if not producto_nombre.strip():
+                st.error("⚠️ Escribe el nombre del producto.")
+            else:
+                st.session_state.creador_producto = producto_nombre.strip()
+                st.session_state.creador_dominio = {
+                    "caracteristicas": caracteristicas.strip(),
+                    "marcas_conocidas": marcas_conocidas.strip(),
+                    "patrones_tecnicos": patrones_tecnicos.strip(),
+                }
+                st.session_state.creador_step = 1
+
+    # ------------------------------------------------------------------
+    # PASO 3: Muestra estratificada
+    # ------------------------------------------------------------------
+    if listo_paso1 and st.session_state.creador_step >= 1 and st.session_state.creador_producto:
+        st.markdown("#### 📊 Paso 3: Muestra representativa")
+        st.caption("Muestreo estratificado determinístico — sin llamar a la IA, solo pandas.")
+
+        try:
+            archivo_crudo_creador.seek(0)
+            df_crudo_completo = pd.read_excel(
+                BytesIO(archivo_crudo_creador.getvalue()),
+                sheet_name=hoja_crudo_creador,
+            )
+            df_muestra, df_dedup = muestrear_veritrade(
+                df_crudo_completo,
+                n_muestra=n_muestra,
+            )
+            st.session_state.creador_muestra = df_muestra
+            st.session_state.creador_step = 2
+
+            c_info1, c_info2, c_info3 = st.columns(3)
+            c_info1.metric("Filas en archivo", f"{len(df_crudo_completo):,}")
+            c_info2.metric("Únicas (dedup)", f"{len(df_dedup):,}")
+            c_info3.metric("Muestra seleccionada", f"{len(df_muestra):,}")
+
+            with st.expander(f"👁️ Ver muestra ({len(df_muestra)} filas)", expanded=False):
+                cols_desc_muestra = identificar_columnas_descripcion(df_muestra.columns)
+                cols_mostrar = cols_desc_muestra[:6] if cols_desc_muestra else list(df_muestra.columns[:6])
+                st.dataframe(df_muestra[cols_mostrar].head(50), width="stretch", hide_index=True)
+                if len(df_muestra) > 50:
+                    st.caption(f"Mostrando 50 de {len(df_muestra)} filas de la muestra.")
+
+        except Exception as e:
+            st.error(f"Error al generar la muestra: {e}")
+            st.session_state.creador_error = str(e)
+
+    # ------------------------------------------------------------------
+    # PASO 4: Generar maestro con IA
+    # ------------------------------------------------------------------
+    if (
+        st.session_state.creador_step >= 2
+        and st.session_state.creador_muestra is not None
+        and template_bytes is not None
+    ):
+        st.markdown("#### 🤖 Paso 4: Generar maestro con IA")
+        st.caption("Una sola llamada a Gemini genera todas las hojas del maestro.")
+
+        # Configuración de IA (reutilizar key del tab de clasificación si existe)
+        api_key_creador = _obtener_api_key_de_secrets()
+        usar_ia_creador = GENAI_DISPONIBLE
+
+        if not usar_ia_creador:
+            st.error("⚠️ google-genai no está instalado.")
+        else:
+            c_ak, c_modelo_gen = st.columns([2, 1])
+            with c_ak:
+                api_key_creador = st.text_input(
+                    "API Key de Gemini",
+                    type="password",
+                    value=api_key_creador,
+                    key="api_key_creador",
+                    help="Requerida para generar el maestro. Se toma de secrets.toml si existe.",
+                )
+            with c_modelo_gen:
+                modelo_gen = st.selectbox(
+                    "Modelo",
+                    config.MODELOS_IA_DISPONIBLES,
+                    index=0,
+                    key="modelo_gen",
+                )
+
+            listo_generar = bool(api_key_creador)
+
+            if st.button(
+                "🚀 Generar Maestro con IA",
+                type="primary",
+                width="stretch",
+                disabled=not listo_generar,
+            ):
+                if not api_key_creador:
+                    st.warning("Ingresa una API Key.")
+                else:
+                    st.session_state.creador_step = 3
+                    st.session_state.creador_error = None
+
+                    # Llamada a la IA (síncrona con spinner)
+                    with st.spinner("🔍 Leyendo template..."):
+                        pass  # Ya leído
+
+                    def _cb_creador(fase, msg):
+                        st.session_state.creador_progreso = f"[{fase}] {msg}"
+
+                    try:
+                        with st.spinner("🤖 Generando maestro con IA... Esto puede tomar 30-60 segundos."):
+                            hojas_generadas = generar_maestro_con_ia(
+                                api_key=api_key_creador,
+                                modelo=modelo_gen,
+                                df_muestra=st.session_state.creador_muestra,
+                                ruta_template=BytesIO(template_bytes),
+                                producto=st.session_state.creador_producto,
+                                dominio=st.session_state.creador_dominio,
+                                progreso_callback=_cb_creador,
+                            )
+
+                        st.session_state.creador_hojas = hojas_generadas
+                        st.session_state.creador_step = 4
+                        st.success("✅ Maestro generado exitosamente. Revisa el resultado abajo.")
+
+                    except Exception as e:
+                        st.session_state.creador_error = str(e)
+                        st.session_state.creador_step = 2
+                        st.error(f"❌ Error al generar: {e}")
+
+    # ------------------------------------------------------------------
+    # PASO 5: Revisión y descarga
+    # ------------------------------------------------------------------
+    if (
+        st.session_state.creador_step >= 4
+        and st.session_state.creador_hojas is not None
+    ):
+        st.markdown("#### 📥 Paso 5: Revisión y descarga")
+        st.success("✅ Maestro generado. Revisa cada hoja antes de usarlo en producción.")
+
+        hojas = st.session_state.creador_hojas
+
+        # KPIs del maestro
+        n_marcas = len(hojas.get("1_Marcas", []))
+        n_stopwords = len(hojas.get("1b_Palabras_Ignorar", []))
+        n_carac = len(hojas.get("2_Caracteristicas", []))
+        n_potencia = len(hojas.get("3_Tecnico_Potencia_NOEDIT", []))
+        n_regex = len(hojas.get("4_Tecnico_RegexMarca_NOEDIT", []))
+        n_cond = len(hojas.get("5_Condicionales", []))
+
+        km1, km2, km3, km4, km5, km6 = st.columns(6)
+        km1.metric("🏷️ Marcas", n_marcas)
+        km2.metric("🚫 Stopwords", n_stopwords)
+        km3.metric("📋 Características", n_carac)
+        km4.metric("⚡ Potencia", n_potencia)
+        km5.metric("🔍 Regex", n_regex)
+        km6.metric("🔀 Condicionales", n_cond)
+
+        st.write("")
+
+        # Vista previa por hoja
+        tab_names = [f"1_Marcas ({n_marcas})",
+                     f"1b_Stopwords ({n_stopwords})",
+                     f"2_Características ({n_carac})",
+                     f"3_Potencia ({n_potencia})",
+                     f"4_Regex ({n_regex})",
+                     f"5_Condicionales ({n_cond})"]
+        tabs_hojas = st.tabs(tab_names)
+
+        hojas_keys = [
+            "1_Marcas", "1b_Palabras_Ignorar", "2_Caracteristicas",
+            "3_Tecnico_Potencia_NOEDIT", "4_Tecnico_RegexMarca_NOEDIT", "5_Condicionales",
         ]
-        if not cols_filtro:  # archivo con nombres atípicos: usar las primeras columnas
-            cols_filtro = list(df_resultado.columns[:6])
-        mask = df_resultado[cols_filtro].astype(str).apply(
-            lambda col: col.str.contains(filtro.strip(), case=False, na=False)
-        ).any(axis=1)
-        df_vista = df_resultado[mask]
-    n_mostradas = min(len(df_vista), FILAS_VISTA_PREVIA)
-    st.caption(
-        f"Mostrando {n_mostradas:,} de {len(df_vista):,} filas coincidentes "
-        f"(total del archivo: {len(df_resultado):,})"
-    )
-    st.dataframe(df_vista.head(FILAS_VISTA_PREVIA), width="stretch", hide_index=True)
+
+        for tab_h, key_h in zip(tabs_hojas, hojas_keys):
+            with tab_h:
+                df_h = hojas.get(key_h)
+                if df_h is not None and len(df_h) > 0:
+                    st.dataframe(df_h, width="stretch", hide_index=True)
+                else:
+                    st.info("Esta hoja está vacía (la IA no encontró datos relevantes para esta sección).")
+
+        st.write("")
+
+        # Descarga
+        try:
+            bytes_maestro_nuevo = guardar_maestro_nuevo(
+                hojas=hojas,
+                producto=st.session_state.creador_producto,
+            )
+            st.session_state.creador_maestro_bytes = bytes_maestro_nuevo
+
+            sufijo = datetime.now().strftime("%Y-%m-%d")
+            nombre_archivo = f"Maestro_{st.session_state.creador_producto}_v1_{sufijo}.xlsx"
+
+            st.download_button(
+                label=f"📥 Descargar {nombre_archivo}",
+                data=bytes_maestro_nuevo,
+                file_name=nombre_archivo,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                width="stretch",
+                key="btn_descarga_maestro_creador",
+            )
+
+            st.caption(
+                "💡 **Siguiente paso:** Sube este maestro en el tab 📊 Clasificar "
+                "para probarlo contra tu Veritrade completo."
+            )
+
+        except Exception as e:
+            st.error(f"Error al generar el Excel: {e}")
+
+    # Botón para reiniciar
+    if st.session_state.creador_step >= 4:
+        st.write("")
+        if st.button("🔄 Crear otro maestro", width="stretch"):
+            st.session_state.creador_step = 0
+            st.session_state.creador_muestra = None
+            st.session_state.creador_hojas = None
+            st.session_state.creador_maestro_bytes = None
+            st.session_state.creador_error = None
+            st.rerun()
