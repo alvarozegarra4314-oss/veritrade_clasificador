@@ -170,8 +170,11 @@ def _hoja_recomendada(info_hojas):
 def _cargar_maestro_incluido():
     """Devuelve (bytes, nombre) del maestro incluido en el proyecto, o (None, None)."""
     ruta = BASE_DIR / "data" / "maestro" / "Maestro_UPS_v2.xlsx"
-    if ruta.exists():
-        return ruta.read_bytes(), ruta.name
+    try:
+        if ruta.exists():
+            return ruta.read_bytes(), ruta.name
+    except Exception:
+        pass
     return None, None
 
 
@@ -813,17 +816,25 @@ with tab_crear:
             template_bytes = None
             if fuente_template == "Usar plantilla incluida":
                 ruta_tpl = BASE_DIR / "data" / "maestro" / "Maestro_Plantilla.xlsx"
-                if ruta_tpl.exists():
-                    template_bytes = ruta_tpl.read_bytes()
-                    st.success(f"✅ Plantilla: {ruta_tpl.name}")
-                else:
-                    # Fallback al maestro UPS si no hay plantilla
-                    ruta_tpl = BASE_DIR / "data" / "maestro" / "Maestro_UPS_v2.xlsx"
+                try:
                     if ruta_tpl.exists():
                         template_bytes = ruta_tpl.read_bytes()
-                        st.info(f"ℹ️ Usando maestro UPS como referencia: {ruta_tpl.name}")
-                    else:
-                        st.warning("⚠️ No se encontró ninguna plantilla.")
+                        st.success(f"✅ Plantilla: {ruta_tpl.name}")
+                except Exception:
+                    template_bytes = None
+
+                if template_bytes is None:
+                    # Fallback al maestro UPS si no hay plantilla
+                    ruta_tpl = BASE_DIR / "data" / "maestro" / "Maestro_UPS_v2.xlsx"
+                    try:
+                        if ruta_tpl.exists():
+                            template_bytes = ruta_tpl.read_bytes()
+                            st.info(f"ℹ️ Usando maestro UPS como referencia: {ruta_tpl.name}")
+                    except Exception:
+                        template_bytes = None
+
+                if template_bytes is None:
+                    st.warning("⚠️ No se encontró ninguna plantilla. Sube una manualmente.")
             else:
                 up_tpl = st.file_uploader(
                     "Sube tu plantilla .xlsx",
