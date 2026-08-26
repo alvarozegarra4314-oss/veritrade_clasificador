@@ -300,117 +300,151 @@ def _construir_prompt_creador(
         ref_template = ref_template[:4000] + "\n... ( truncado por longitud)"
 
     system_prompt = f"""Eres un experto MUNDIAL en clasificación de productos de comercio exterior (importaciones/exportaciones).
-Tu tarea es crear un ARCHIVO MAESTRO de clasificación completo y detallado para la línea de productos "{producto}".
+Tu tarea es crear un ARCHIVO MAESTRO de clasificación COMPLETO y DETALLADO para la línea de productos "{producto}".
 
 El maestro es un archivo Excel con hojas específicas que un motor de clasificación automática consume.
-Debes generar REGLAS EXTENSAS, EXHAUSTIVAS y PRECISAS basándote ÚNICAMENTE en las descripciones de importación reales que te proporcionaré.
+Debes generar REGLAS EXTENSAS, EXHAUSTIVAS y PRECISAS basándote en las descripciones de importación reales.
 
-## REGLA DE ORO
-Analiza CADA descripción de la muestra y extrae TODA la información posible:
-- Marcas (incluso abreviaturas, siglas, variantes ortográficas)
-- Características categóricas (tecnología, formato, gama, fases, uso, etc.)
-- Valores numéricos (voltaje, potencia, capacidad, corriente, frecuencia)
-- Patrones regex que capturen variaciones de escritura
-- Reglas condicionales que resuelvan ambigüedades
+## IMPORTANTE: CANTIDADES MÍNIMAS OBLIGATORIAS
+El maestro de referencia para esta categoría tiene:
+- 72 marcas → TÚ debes generar MÍNIMO 50 marcas
+- 284 reglas de características → TÚ debes generar MÍNIMO 150 reglas
+- 16 patrones técnicos → TÜ debes generar MÍNIMO 10 patrones
+- 4 reglas condicionales → TÚ debes generar MÍNIMO 8 reglas
+- 21 stopwords → TÚ debes generar MÍNIMO 30 stopwords
+Si generas MENOS que estos mínimos, tu respuesta es INACEPTABLE. Vuelve a analizar.
 
 ## ESTRUCTURA DEL MAESTRO (formato que DEBES respetar exactamente)
 
 {ref_template}
 
-## INSTRUCCIONES DETALLADAS POR HOJA
+## INSTRUCCIONES DETALLADAS POR HOJA — USA LOS NOMBRES DE COLUMNAS DEL TEMPLATE EXACTAMENTE
 
 ### Hoja "0b_Config_Linea"
-Parámetros clave-valor. Siempre incluir:
-- PARAMETRO="LINEA_PRODUCTO", VALOR="{producto}"
-- PARAMETRO="COL_DESCRIPCION", VALOR="Descripcion Comercial"
-- PARAMETRO="MUESTRA_ANALIZADA", VALOR="{len(descripciones)} filas"
+Columnas EXACTAS: "Parametro" | "Valor"
+Siempre incluir estas 3 filas:
+- Parametro="LINEA_PRODUCTO", Valor="{producto}"
+- Parametro="VARIABLE_PRODUCTO_PRINCIPAL", Valor="Tipo_Producto_Detallado"
+- Parametro="VALOR_PRODUCTO_PRINCIPAL", Valor="{producto} Sistema Completo"
 
-### Hoja "1_Marcas" — MÍNIMO 30 marcas, idealmente 50-100+
-Diccionario de marcas: Patrón detectado en texto → Marca estandarizada → Prioridad.
-- Prioridad: 1=alta (regla humana), 2=media, 3=baja (aprendizaje IA).
-- El "Patrón" es una palabra o frase TAL COMO aparece en las descripciones (para matching directo).
-- Incluye TODAS las marcas que identifiques en la muestra. Sé EXHAUSTIVO.
-- NORMALIZAR marcas: variantes diferentes de la misma marca deben apuntar al mismo nombre estándar.
-- Ejemplo: "APC", "A.P.C", "APC BY SCHNEIDER" → todos "SCHNEIDER ELECTRIC" o "APC" según convenga.
-- Busca también: siglas de marcas, nombres parciales, variantes con/espacios/puntos.
+### Hoja "1_Marcas" — MÍNIMO 50 marcas (el template de referencia tiene 72)
+Columnas EXACTAS: "Patron_Busqueda" | "Marca_Estandar" | "Prioridad"
+- "Patron_Busqueda": palabra o frase TAL COMO aparece en las descripciones (para matching directo).
+- "Marca_Estandar": nombre normalizado de la marca.
+- Prioridad: 1=alta, 2=media, 3=baja.
+- NORMALIZAR: variantes de la misma marca → mismo nombre estándar.
+- Ejemplo de normalización:
+  "APC", "A.P.C", "APC BY SCHNEIDER", "AMERICAN POWER CONVERSION" → "APC"
+  "SCHNEIDER", "SCHNEIDER ELECTRIC", "SE" → "SCHNEIDER ELECTRIC"
+  "EATON", "EATON POWER QUALITY" → "EATON"
+- Incluye TAMBIÉN: siglas de marcas, nombres parciales, variantes con/espacios/puntos/guiones.
+- Sé EXHAUSTIVO: si ves una marca en las descripciones, DEBE aparecer aquí.
 
-### Hoja "1b_Palabras_Ignorar" — MÍNIMO 40 stopwords
-Columna única "Palabra". Incluir palabras que NUNCA deben considerarse marca:
-- Términos genéricos: "GENérico", "SIN MARCA", "NO APLICA", "PARA", "CON", "DE", "EL", "LA", etc.
-- Términos técnicos genéricos de la categoría "{producto}": "MODULO", "CABLE", "DISPOSITIVO", etc.
-- Palabras de uso común en facturas: "UNIDAD", "PIEZA", "LOTE", "CAJA", "KIT", etc.
-- Términos específicos de la categoría que aparecen en descripciones pero NO son marcas.
+### Hoja "1b_Palabras_Ignorar" — MÍNIMO 30 stopwords (el template tiene 21)
+Columnas EXACTAS: "Palabra_Ignorar" | "Categoria"
+- "Palabra_Ignorar": palabra que NUNCA debe considerarse marca.
+- "Categoria": clasificación de la palabra ("Término Técnico", "Origen / Comercial", "Entidad Legal", "Genérico").
+- Incluir AMBAS columnas para cada fila.
+- Obligatorio incluir: FUENTE, ALIMENTACION, PODER, CARGADOR, POWER, ADAPTADOR, ESTABILIZADOR, ONLINE, CHINA, TAIWAN, USA, S.A., SAC, LTD, UNIDAD, PIEZA, LOTE, CAJA, KIT, MODULO, CABLE, DISPOSITIVO, GENERICO, SIN MARCA, NO APLICA.
+- Agregar más términos técnicos específicos de "{producto}" que aparezcan en las descripciones.
 
-### Hoja "1c_Marca_Por_Defeito"
-Marca a asignar cuando nada coincide:
-- Si producto principal=True → "{producto}" (nombre de la línea)
-- Si producto principal=False → "MARCA COMPONENTES"
+### Hoja "1c_Marca_Por_Defecto"
+Columnas EXACTAS: "Es_Producto_Principal" | "Marca_Default"
+- Fila 1: Es_Producto_Principal=True, Marca_Default="Marca Generica"
+- Fila 2: Es_Producto_Principal=False, Marca_Default="Marca Componentes"
 
-### Hoja "2_Caracteristicas" — MÍNIMO 50 reglas, idealmente 100+
-Palabras clave → valor de cada característica categórica.
-Cada fila: Variable | Palabra_Clave | Valor_Resultado | Prioridad
+### Hoja "2_Caracteristicas" — MÍNIMO 150 reglas (el template tiene 284)
+Columnas EXACTAS: "Variable" | "Valor_Resultado" | "Palabra_Clave" | "Prioridad" | "Comentario"
+- "Variable": nombre de la característica categórica.
+- "Valor_Resultado": valor normalizado de la característica.
+- "Palabra_Clave": palabra o frase que aparece en las descripciones (o regex simple con |).
+- "Prioridad": 1=alta, 2=media, 3=baja.
+- "Comentario": explicación breve de por qué esta regla existe.
 
-**OBLIGATORIO extraer estas variables (si existen en las descripciones):**
-- "Tecnologia": online, offline, lineal, digital, etc.
-- "Fases": monofasico, trifasico, bifasico, 1F, 2F, 3F
-- "Formato": rack, piso, modular, compacto, portatil, etc.
-- "Gama": basica, media, alta, premium, industrial, comercial
-- "Uso": domiciliario, industrial, hospitalario, oficina, servidor, etc.
-- "Capacidad": rango de capacidad (baja, media, alta)
-- "Voltaje": 110V, 220V, 110/220V, bivoltaje, universal
-- Cualquier OTRA característica que identifiques en las descripciones
+**VARIABLES OBLIGATORIAS (debes crear múltiples filas para CADA una):**
+- "Formato_Montaje": Rack, Torre, Rack/Torre (RT), 1U, 2U, 3U, Modular, Piso, Compacto, Portatil, etc.
+- "Tipo_Tecnologia": On-Line / Doble Conversion, Off-Line / Standby, Line-Interactive, Online, Offline, Standby, etc.
+- "Capacidad_Bateria": Alta, Media, Baja, Extended, Interna, Externa, etc.
+- "Salida_Fases": Monofasico, Bifasico, Trifasico, 1F, 2F, 3F, etc.
+- "Voltaje_Entrada": 110V, 220V, 110/220V, Bivoltaje, Universal, 12VDC, 24VDC, 48VDC, etc.
+- "Uso_Aplicacion": Domiciliario, Oficina, Industrial, Servidor, Data Center, Hospitalario, Telecomunicaciones, etc.
+- "Gama": Basica, Media, Alta, Premium, Enterprise, etc.
+- "Tipo_Producto": UPS Sistema Completo, UPS Solo Bateria, Modulo de Bateria, Kit de Bateria, PDU, Regulador, etc.
 
-- "Palabra_Clave" debe aparecer LITERALMENTE en las descripciones (o ser un regex válido).
-- Usar regex simple: alternaciones con | (ej: "TRIF|3F|3~|TRIFASICO|3 FASES|TRES FASES")
-- Prioridad: 1=alta, 2=media, 3=baja
-- Ser EXHAUSTIVO: cada variación de escritura debe tener su propia fila.
+**Para CADA variable, crear MÍNIMO 10-15 filas** con TODAS las variaciones de escritura:
+- Ejemplo para Tipo_Tecnologia: ONLINE, ON-LINE, ON LINE, ONLINE DOBLE CONVERSION, DOBLE CONVERSION, DOUBLE CONVERSION, OFFLINE, OFF-LINE, OFF LINE, STANDBY, STAND-BY, STAND BY, LINE INTERACTIVE, LINE-INTERACTIVE, LINEAR, AUXILIAR, etc.
+- Ejemplo para Formato_Montaje: RACK, RACK/TOWER, RACK TOWER, RT, TORRE, TOWER, 1U, 2U, 3U, 4U, 6U, 8U, MODULAR, PISO, FLOOR, COMPACT, PORTABLE, etc.
 
-### Hoja "3_Tecnico_Potencia_NOEDIT" — MÍNIMO 5 patrones
-Extracción de valores numéricos técnicos con multiplicadores de unidad.
-Cada fila: Variable | Patron | Multiplicador | Valor_Min | Valor_Max | Unidad | Orden_Prioridad
+### Hoja "3_Tecnico_Potencia_NOEDIT" — MÍNIMO 10 patrones (el template tiene 16)
+Columnas EXACTAS: "Variable" | "Pattern_Regex" | "Multiplicador_kVA" | "Orden_Prioridad" | "Comentario"
+- "Variable": nombre de la variable técnica (Amperaje, Capacidad_Bateria, Frecuencia, Potencia_Watts, Potencia_kVA, Voltaje_Entrada, etc.)
+- "Pattern_Regex": regex con grupo de captura que extrae el número.
+- "Multiplicador_kVA": factor de conversión (1.0 para unidades base, 1000 para K→base, 0.001 para base→K).
+- "Orden_Prioridad": 1=primero en revisarse.
+- "Comentario": explicación del patrón.
 
-**Variables obligatorias a detectar (si existen):**
-- Potencia: VA, KVA, KW, W, AMP
-- Voltaje: V, KV
-- Capacidad: AH, WH, KWH, MAH
-- Frecuencia: HZ, KHZ, MHZ
-- Temperatura: °C, °F
-- Corriente: A, MA, KA
+**Patrones OBLIGATORIOS (adapta según lo que veas en las descripciones):**
+- Amperaje: \b(\d+(?:[\.,]\d+)?)\s*AMPS?\b → Multiplicador=1.0
+- Amperaje genérico: \b(\d+(?:[\.,]\d+)?)\s+A\b (con word boundary) → Multiplicador=1.0
+- Capacidad_Bateria: \b(\d+(?:[\.,]\d+)?)\s*AH\b → Multiplicador=1.0
+- Frecuencia: \b(\d+(?:[\.,]\d+)?)\s*HZ\b → Multiplicador=1.0
+- Potencia_Watts: \b(\d+(?:[\.,]\d+)?)\s*WATTS?\b → Multiplicador=1.0
+- Potencia_Watts (abreviado): \b(\d+(?:[\.,]\d+)?)\s+W\b (con word boundary) → Multiplicador=1.0
+- Potencia_kVA directo: \b(\d+(?:[\.,]\d+)?)\s*KVA\b → Multiplicador=1.0
+- Potencia_kVA desde VA: \b(\d+(?:[\.,]\d+)?)\s*VA\b → Multiplicador=0.001
+- Potencia_kVA desde KW: \b(\d+(?:[\.,]\d+)?)\s*KW\b → Multiplicador=1.0
+- Voltaje DC: \b(\d+(?:[\.,]\d+)?)\s*VDC\b → Multiplicador=1.0
+- Voltaje AC: \b(\d+(?:[\.,]\d+)?)\s*VAC\b → Multiplicador=1.0
+- Voltaje genérico: \b(1[0-9]|[2-9]\d|[1-5]\d{{2}}|600)\s*V\b → Multiplicador=1.0
 
-- El Patrón es un regex con grupo de captura que extrae el número.
-- El Multiplicador convierte a la unidad base (ej: KVA→VA es *1000, KW→W es *1000).
-- Valor_Min y Valor_Max son rangos razonables para filtrar falsos positivos.
+### Hoja "4_Tecnico_RegexMarca_NOEDIT" — MÍNIMO 5 patrones
+Columnas EXACTAS: "Orden_Prioridad" | "Etiqueta_Patron" | "Pattern_Regex"
+- "Orden_Prioridad": 1=primero.
+- "Etiqueta_Patron": nombre descriptivo del patrón.
+- "Pattern_Regex": regex que captura la marca.
 
-### Hoja "4_Tecnico_RegexMarca_NOEDIT" — MÍNIMO 10 patrones
-Patrones regex avanzados para marcas difíciles o ambiguas.
-Incluir patrones para:
-- Marcas con variaciones ortográficas
-- Marcas que son abreviaturas cortas (2-3 letras) que pueden confundirse con otras palabras
-- Marcas que aparecen en diferentes formatos (con/sin espacios, con/numeros, etc.)
+**Patrones a incluir:**
+- \bMARCA[:\s]+([A-Z0-9\.\-]+) → Detección explícita de "MARCA: X"
+- \bBRAND[:\s]+([A-Z0-9\.\-]+) → Detección explícita de "BRAND: X"
+- \bM/([A-Z0-9\.\-]+) → Formato abreviado "M/X"
+- Patrones específicos para marcas ambiguas que identifiques en las descripciones.
 
-### Hoja "5_Condicionales" — MÍNIMO 10 reglas
-Reglas SI-ENTONCES para resolver ambigüedades y refinar clasificación.
-Cada fila: Regla_ID | Variable_Resultado | Valor_Resultado | Prioridad | Variable_Condicion | Operador | Valor_1 | Valor_2 | Es_Numerica
+### Hoja "5_Condicionales" — MÍNIMO 8 reglas
+Columnas EXACTAS: "Regla_ID" | "Variable_Resultado" | "Valor_Resultado" | "Prioridad" | "Variable_Condicion" | "Operador" | "Valor_1" | "Valor_2" | "Comentario"
+- "Regla_ID": número secuencial (1, 2, 3...).
+- "Variable_Resultado": variable que se asigna si se cumple la condición.
+- "Valor_Resultado": valor a asignar.
+- "Prioridad": 1=primera en evaluarse.
+- "Variable_Condicion": variable que se evalúa.
+- "Operador": ==, >, <, >=, <=, BETWEEN, CONTAINS, NOT_CONTAINS.
+- "Valor_1" y "Valor_2": valores de comparación (Valor_2 solo para BETWEEN).
+- "Comentario": explicación de la regla.
 
-**Ejemplos de reglas a crear:**
-- SI potencia >= 10000 Y potencia <= 100000 ENTONCES Gama="Alta"
-- SI marca ES "APC" Y tecnologia ES "online" ENTONCES Gama="Premium"
-- SI voltaje contiene "110/220" ENTONCES Voltaje="Bivoltaje"
-- SI descripcion contiene "INDUSTRIAL" ENTONCES Uso="Industrial"
+**Ejemplos de reglas OBLIGATORIAS:**
+- SI Potencia_kVA BETWEEN 0 Y 3 → Salida_Fases="Monofásico" (UPS pequeños son monofásicos)
+- SI Potencia_kVA BETWEEN 3 Y 10 → Salida_Fases="Bifásico" (rango intermedio)
+- SI Potencia_kVA > 10 → Salida_Fases="Trifásico" (UPS grandes)
+- SI Tipo_Tecnologia=="On-Line Doble Conversion" Y Salida_Fases=="Trifásico" → confirmar
+- SI Voltaje_Entrada CONTAINS "110/220" → Voltaje_Entrada="Bivoltaje"
+- SI descripcion CONTAINS "INDUSTRIAL" → Uso_Aplicacion="Industrial"
+- SI descripcion CONTAINS "DATA CENTER" → Uso_Aplicacion="Data Center"
+- SI Capacidad_Bateria=="Extended" → Gama="Alta"
 
 ## ANÁLISIS OBLIGATORIO DE LAS DESCRIPCIONES
 
-Antes de generar el JSON, analiza CADA descripción de la muestra y extrae:
-1. ¿Qué marcas aparecen? (todas, incluyendo variantes)
-2. ¿Qué caracteres técnicos se repiten? (voltaje, potencia, fases, etc.)
-3. ¿Qué palabras son genéricas vs específicas de marca?
-4. ¿Qué patrones numéricos hay? (rangos de valores)
-5. ¿Qué ambigüedades existen que se resuelvan con condicionales?
+Antes de generar el JSON, haz un conteo mental:
+1. Lista TODAS las marcas que encuentras (deben ser 50+).
+2. Lista TODAS las variantes de escritura para cada característica (deben ser 150+ filas en total).
+3. Lista TODOS los patrones numéricos (deben ser 10+).
+4. Lista TODAS las palabras que NO son marca (deben ser 30+).
+5. Crea reglas condicionales que resuelvan ambigüedades (deben ser 8+).
+
+Si no llegas a los mínimos, REVISA de nuevo las descripciones. Siempre hay más de lo que parece a primera vista.
 
 ## REGLAS CRÍTICAS
 1. Las descripciones de importación son textos de FACTURA: marcas, modelos, especificaciones, usos mezclados.
 2. Sé EXHAUSTIVO: mejor sobregenerar que subgenerar. El PM puede borrar, pero no sabe qué falta.
-3. Cada hoja debe tener como mínimo los números indicados arriba.
+3. Los nombres de columnas DEBEN ser EXACTAMENTE los del template (ver arriba).
 4. NUNCA inventar datos que no estén en las descripciones. Si un patrón no existe, no lo inventes.
 5. Los patrones regex deben ser FUNCIONALES (probados mentalmente contra las descripciones).
 6. Devolver SOLO el JSON válido, sin texto adicional."""
@@ -424,112 +458,130 @@ Antes de generar el JSON, analiza CADA descripción de la muestra y extrae:
 
 ---
 
-## INSTRUCCIONES DE GENERACIÓN
+## INSTRUCCIONES DE GENERACIÓN — CANTIDADES MÍNIMAS OBLIGATORIAS
 
-1. Lee TODAS las descripciones de arriba.
-2. Identifica TODAS las marcas, características, valores técnicos y patrones.
-3. Genera el JSON del maestro con la CANTIDAD MÍNIMA de reglas indicada en cada hoja.
-4. Para "1_Marcas": necesito MÍNIMO 30 marcas (idealmente 50+).
-5. Para "2_Caracteristicas": necesito MÍNIMO 50 reglas (idealmente 100+).
-6. Para "5_Condicionales": necesito MÍNIMO 10 reglas condicionales.
-7. Devuelve ÚNICAMENTE el JSON, sin explicaciones."""
+El maestro de referencia para UPS tiene 72 marcas y 284 características. TÚ debes generar algo similar para "{producto}".
+
+### REGLAS DE CANTIDAD (NO NEGOCIABLES):
+1. "1_Marcas": MÍNIMO 50 filas. Si no tienes 50 marcas, buscas mal. Revisa abbreviaturas, siglas, variantes ortográficas.
+2. "2_Caracteristicas": MÍNIMO 150 filas. Para CADA Variable (Formato_Montaje, Tipo_Tecnologia, etc.) crea 10-20 filas con TODAS las variaciones de escritura.
+3. "3_Tecnico_Potencia_NOEDIT": MÍNIMO 10 filas. Cada tipo de unidad (VA, KVA, KW, W, AH, HZ, V, VAC, VDC, AMPS) necesita su propio patrón.
+4. "5_Condicionales": MÍNIMO 8 filas. Reglas que resuelvan ambigüedades reales.
+5. "1b_Palabras_Ignorar": MÍNIMO 30 filas. Términos técnicos, orígenes, entidades legales, genéricos.
+
+### EJEMPLO DE RIQUEZA ESPERADA para "2_Caracteristicas":
+Si la Variable es "Tipo_Tecnologia", debes crear filas para:
+ONLINE, ON-LINE, ON LINE, ONLINE DOBLE CONVERSION, DOBLE CONVERSION, DOUBLE CONVERSION,
+OFFLINE, OFF-LINE, OFF LINE, STANDBY, STAND-BY, STAND BY,
+LINE INTERACTIVE, LINE-INTERACTIVE, LINEAR, AUXILIAR, etc.
+CADA variación es una fila separada con su Palabra_Clave y Prioridad.
+
+### EJEMPLO DE RIQUEZA ESPERADA para "1_Marcas":
+Incluir TODAS las marcas que aparezcan en las descripciones, incluyendo variantes:
+APC, A.P.C, AMERICAN POWER CONVERSION → normalizar a "APC"
+SCHNEIDER, SCHNEIDER ELECTRIC, SE → normalizar a "SCHNEIDER ELECTRIC"
+EATON, EATON POWER QUALITY → normalizar a "EATON"
+Cada variación de escritura de la MISMA marca también va como fila aparte.
+
+## DEVUELVE ÚNICAMENTE EL JSON, SIN EXPLICACIONES."""
 
     return system_prompt, user_prompt
 
 
 def _schema_json_maestro() -> dict:
-    """Schema JSON que Gemini debe devolver (una key por hoja del maestro)."""
+    """Schema JSON que Gemini debe devolver (una key por hoja del maestro).
+    Los nombres de columnas coinciden EXACTAMENTE con Maestro_Plantilla.xlsx."""
     return {
         "type": "OBJECT",
         "properties": {
             "0b_Config_Linea": {
                 "type": "ARRAY",
-                "description": "Filas de configuración: cada una con PARAMETRO y VALOR.",
+                "description": "Filas de configuración: cada una con Parametro y Valor.",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
-                        "PARAMETRO": {"type": "STRING"},
-                        "VALOR": {"type": "STRING"},
+                        "Parametro": {"type": "STRING"},
+                        "Valor": {"type": "STRING"},
                     },
                 },
             },
             "1_Marcas": {
                 "type": "ARRAY",
-                "description": "Diccionario de marcas: patrón de búsqueda → nombre estándar + prioridad.",
+                "description": "Diccionario de marcas: patron de busqueda → nombre estándar + prioridad. MÍNIMO 50 filas.",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
-                        "Patrón detectado en texto": {"type": "STRING"},
-                        "Marca estandarizada": {"type": "STRING"},
+                        "Patron_Busqueda": {"type": "STRING"},
+                        "Marca_Estandar": {"type": "STRING"},
                         "Prioridad": {"type": "INTEGER"},
                     },
                 },
             },
             "1b_Palabras_Ignorar": {
                 "type": "ARRAY",
-                "description": "Stopwords: palabras que nunca deben ser marca.",
+                "description": "Stopwords: palabras que nunca deben ser marca. MÍNIMO 30 filas.",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
-                        "Palabra": {"type": "STRING"},
+                        "Palabra_Ignorar": {"type": "STRING"},
+                        "Categoria": {"type": "STRING"},
                     },
                 },
             },
-            "1c_Marca_Por_Defeito": {
+            "1c_Marca_Por_Defecto": {
                 "type": "ARRAY",
                 "description": "Marca por defecto cuando nada coincide.",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
-                        "Producto Principal": {"type": "BOOLEAN"},
-                        "Marca_Por_Defecto": {"type": "STRING"},
+                        "Es_Producto_Principal": {"type": "BOOLEAN"},
+                        "Marca_Default": {"type": "STRING"},
                     },
                 },
             },
             "2_Caracteristicas": {
                 "type": "ARRAY",
-                "description": "Reglas de características categóricas.",
+                "description": "Reglas de características categóricas. MÍNIMO 150 filas. Cada Variable debe tener 10-20 variaciones de escritura.",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
                         "Variable": {"type": "STRING"},
-                        "Palabra_Clave": {"type": "STRING"},
                         "Valor_Resultado": {"type": "STRING"},
+                        "Palabra_Clave": {"type": "STRING"},
                         "Prioridad": {"type": "INTEGER"},
+                        "Comentario": {"type": "STRING"},
                     },
                 },
             },
             "3_Tecnico_Potencia_NOEDIT": {
                 "type": "ARRAY",
-                "description": "Patrones de extracción numérica técnica.",
+                "description": "Patrones de extracción numérica técnica. MÍNIMO 10 filas.",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
                         "Variable": {"type": "STRING"},
-                        "Patron": {"type": "STRING"},
-                        "Multiplicador": {"type": "NUMBER"},
-                        "Valor_Min": {"type": "NUMBER"},
-                        "Valor_Max": {"type": "NUMBER"},
-                        "Unidad": {"type": "STRING"},
+                        "Pattern_Regex": {"type": "STRING"},
+                        "Multiplicador_kVA": {"type": "NUMBER"},
                         "Orden_Prioridad": {"type": "INTEGER"},
+                        "Comentario": {"type": "STRING"},
                     },
                 },
             },
             "4_Tecnico_RegexMarca_NOEDIT": {
                 "type": "ARRAY",
-                "description": "Regex avanzados de marca (casos difíciles).",
+                "description": "Regex avanzados de marca (casos difíciles). MÍNIMO 5 filas.",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
-                        "Patron_Regex": {"type": "STRING"},
-                        "Marca_Estandar": {"type": "STRING"},
                         "Orden_Prioridad": {"type": "INTEGER"},
+                        "Etiqueta_Patron": {"type": "STRING"},
+                        "Pattern_Regex": {"type": "STRING"},
                     },
                 },
             },
             "5_Condicionales": {
                 "type": "ARRAY",
-                "description": "Reglas condicionales SI-ENTONCES.",
+                "description": "Reglas condicionales SI-ENTONCES. MÍNIMO 8 filas.",
                 "items": {
                     "type": "OBJECT",
                     "properties": {
@@ -541,7 +593,7 @@ def _schema_json_maestro() -> dict:
                         "Operador": {"type": "STRING"},
                         "Valor_1": {"type": "STRING"},
                         "Valor_2": {"type": "STRING"},
-                        "Es_Numerica": {"type": "BOOLEAN"},
+                        "Comentario": {"type": "STRING"},
                     },
                 },
             },
@@ -645,6 +697,7 @@ def generar_maestro_con_ia(
 def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.DataFrame]:
     """
     Convierte el JSON de la IA en un dict de DataFrames, uno por hoja.
+    Los nombres de columnas coinciden con Maestro_Plantilla.xlsx.
     """
     hojas = {}
 
@@ -652,9 +705,9 @@ def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.
     cfg_rows = datos.get("0b_Config_Linea", [])
     if not cfg_rows:
         cfg_rows = [
-            {"PARAMETRO": "LINEA_PRODUCTO", "VALOR": producto},
-            {"PARAMETRO": "COL_DESCRIPCION", "VALOR": "Descripcion Comercial"},
-            {"PARAMETRO": "MUESTRA_ANALIZADA", "VALOR": f"{len(datos)} filas"},
+            {"Parametro": "LINEA_PRODUCTO", "Valor": producto},
+            {"Parametro": "VARIABLE_PRODUCTO_PRINCIPAL", "Valor": "Tipo_Producto_Detallado"},
+            {"Parametro": "VALOR_PRODUCTO_PRINCIPAL", "Valor": f"{producto} Sistema Completo"},
         ]
     hojas["0b_Config_Linea"] = pd.DataFrame(cfg_rows)
 
@@ -664,7 +717,7 @@ def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.
         hojas["1_Marcas"] = pd.DataFrame(marcas_rows)
     else:
         hojas["1_Marcas"] = pd.DataFrame(columns=[
-            "Patrón detectado en texto", "Marca estandarizada", "Prioridad"
+            "Patron_Busqueda", "Marca_Estandar", "Prioridad"
         ])
 
     # 1b_Palabras_Ignorar
@@ -672,16 +725,16 @@ def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.
     if sw_rows:
         hojas["1b_Palabras_Ignorar"] = pd.DataFrame(sw_rows)
     else:
-        hojas["1b_Palabras_Ignorar"] = pd.DataFrame(columns=["Palabra"])
+        hojas["1b_Palabras_Ignorar"] = pd.DataFrame(columns=["Palabra_Ignorar", "Categoria"])
 
-    # 1c_Marca_Por_Defeito
-    default_rows = datos.get("1c_Marca_Por_Defeito", [])
+    # 1c_Marca_Por_Defecto
+    default_rows = datos.get("1c_Marca_Por_Defecto", [])
     if not default_rows:
         default_rows = [
-            {"Producto Principal": True, "Marca_Por_Defecto": producto.upper()},
-            {"Producto Principal": False, "Marca_Por_Defecto": "MARCA COMPONENTES"},
+            {"Es_Producto_Principal": True, "Marca_Default": "Marca Generica"},
+            {"Es_Producto_Principal": False, "Marca_Default": "Marca Componentes"},
         ]
-    hojas["1c_Marca_Por_Defeito"] = pd.DataFrame(default_rows)
+    hojas["1c_Marca_Por_Defecto"] = pd.DataFrame(default_rows)
 
     # 2_Caracteristicas
     carac_rows = datos.get("2_Caracteristicas", [])
@@ -689,7 +742,7 @@ def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.
         hojas["2_Caracteristicas"] = pd.DataFrame(carac_rows)
     else:
         hojas["2_Caracteristicas"] = pd.DataFrame(columns=[
-            "Variable", "Palabra_Clave", "Valor_Resultado", "Prioridad"
+            "Variable", "Valor_Resultado", "Palabra_Clave", "Prioridad", "Comentario"
         ])
 
     # 3_Tecnico_Potencia_NOEDIT
@@ -698,7 +751,7 @@ def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.
         hojas["3_Tecnico_Potencia_NOEDIT"] = pd.DataFrame(pot_rows)
     else:
         hojas["3_Tecnico_Potencia_NOEDIT"] = pd.DataFrame(columns=[
-            "Variable", "Patron", "Multiplicador", "Valor_Min", "Valor_Max", "Unidad", "Orden_Prioridad"
+            "Variable", "Pattern_Regex", "Multiplicador_kVA", "Orden_Prioridad", "Comentario"
         ])
 
     # 4_Tecnico_RegexMarca_NOEDIT
@@ -707,7 +760,7 @@ def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.
         hojas["4_Tecnico_RegexMarca_NOEDIT"] = pd.DataFrame(regex_rows)
     else:
         hojas["4_Tecnico_RegexMarca_NOEDIT"] = pd.DataFrame(columns=[
-            "Patron_Regex", "Marca_Estandar", "Orden_Prioridad"
+            "Orden_Prioridad", "Etiqueta_Patron", "Pattern_Regex"
         ])
 
     # 5_Condicionales
@@ -717,7 +770,7 @@ def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.
     else:
         hojas["5_Condicionales"] = pd.DataFrame(columns=[
             "Regla_ID", "Variable_Resultado", "Valor_Resultado", "Prioridad",
-            "Variable_Condicion", "Operador", "Valor_1", "Valor_2", "Es_Numerica"
+            "Variable_Condicion", "Operador", "Valor_1", "Valor_2", "Comentario"
         ])
 
     return hojas
@@ -736,16 +789,16 @@ def _normalizar_hoja(df: pd.DataFrame, columnas_esperadas: list[str]) -> pd.Data
     return df[columnas_esperadas]
 
 
-# Columnas esperadas por hoja (referencia centralizada)
+# Columnas esperadas por hoja (referencia centralizada — coinciden con Maestro_Plantilla.xlsx)
 COLUMNAS_HOJAS = {
-    "0b_Config_Linea": ["PARAMETRO", "VALOR"],
-    "1_Marcas": ["Patrón detectado en texto", "Marca estandarizada", "Prioridad"],
-    "1b_Palabras_Ignorar": ["Palabra"],
-    "1c_Marca_Por_Defeito": ["Producto Principal", "Marca_Por_Defecto"],
-    "2_Caracteristicas": ["Variable", "Palabra_Clave", "Valor_Resultado", "Prioridad"],
-    "3_Tecnico_Potencia_NOEDIT": ["Variable", "Patron", "Multiplicador", "Valor_Min", "Valor_Max", "Unidad", "Orden_Prioridad"],
-    "4_Tecnico_RegexMarca_NOEDIT": ["Patron_Regex", "Marca_Estandar", "Orden_Prioridad"],
-    "5_Condicionales": ["Regla_ID", "Variable_Resultado", "Valor_Resultado", "Prioridad", "Variable_Condicion", "Operador", "Valor_1", "Valor_2", "Es_Numerica"],
+    "0b_Config_Linea": ["Parametro", "Valor"],
+    "1_Marcas": ["Patron_Busqueda", "Marca_Estandar", "Prioridad"],
+    "1b_Palabras_Ignorar": ["Palabra_Ignorar", "Categoria"],
+    "1c_Marca_Por_Defecto": ["Es_Producto_Principal", "Marca_Default"],
+    "2_Caracteristicas": ["Variable", "Valor_Resultado", "Palabra_Clave", "Prioridad", "Comentario"],
+    "3_Tecnico_Potencia_NOEDIT": ["Variable", "Pattern_Regex", "Multiplicador_kVA", "Orden_Prioridad", "Comentario"],
+    "4_Tecnico_RegexMarca_NOEDIT": ["Orden_Prioridad", "Etiqueta_Patron", "Pattern_Regex"],
+    "5_Condicionales": ["Regla_ID", "Variable_Resultado", "Valor_Resultado", "Prioridad", "Variable_Condicion", "Operador", "Valor_1", "Valor_2", "Comentario"],
 }
 
 
