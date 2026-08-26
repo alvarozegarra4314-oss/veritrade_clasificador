@@ -673,6 +673,28 @@ def _parsear_respuesta_a_dataframes(datos: dict, producto: str) -> dict[str, pd.
 # PASO 3: ESCRITURA DEL EXCEL
 # =====================================================================
 
+def _normalizar_hoja(df: pd.DataFrame, columnas_esperadas: list[str]) -> pd.DataFrame:
+    """Filtra un DataFrame a solo las columnas esperadas, en el orden correcto.
+    Columnas extra de la IA se descartan; columnas faltantes se crean vacías."""
+    for col in columnas_esperadas:
+        if col not in df.columns:
+            df[col] = None
+    return df[columnas_esperadas]
+
+
+# Columnas esperadas por hoja (referencia centralizada)
+COLUMNAS_HOJAS = {
+    "0b_Config_Linea": ["PARAMETRO", "VALOR"],
+    "1_Marcas": ["Patrón detectado en texto", "Marca estandarizada", "Prioridad"],
+    "1b_Palabras_Ignorar": ["Palabra"],
+    "1c_Marca_Por_Defeito": ["Producto Principal", "Marca_Por_Defecto"],
+    "2_Caracteristicas": ["Variable", "Palabra_Clave", "Valor_Resultado", "Prioridad"],
+    "3_Tecnico_Potencia_NOEDIT": ["Variable", "Patron", "Multiplicador", "Valor_Min", "Valor_Max", "Unidad", "Orden_Prioridad"],
+    "4_Tecnico_RegexMarca_NOEDIT": ["Patron_Regex", "Marca_Estandar", "Orden_Prioridad"],
+    "5_Condicionales": ["Regla_ID", "Variable_Resultado", "Valor_Resultado", "Prioridad", "Variable_Condicion", "Operador", "Valor_1", "Valor_2", "Es_Numerica"],
+}
+
+
 def guardar_maestro_nuevo(
     hojas: dict[str, pd.DataFrame],
     producto: str,
@@ -689,7 +711,7 @@ def guardar_maestro_nuevo(
     buf = BytesIO()
 
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        # Escribir hojas en orden
+        # Escribir hojas en orden, normalizando columnas
         orden_hojas = [
             "0b_Config_Linea",
             "1_Marcas",
@@ -704,39 +726,73 @@ def guardar_maestro_nuevo(
         for nombre_hoja in orden_hojas:
             df = hojas.get(nombre_hoja)
             if df is not None and len(df) > 0:
+                cols_ok = COLUMNAS_HOJAS.get(nombre_hoja)
+                if cols_ok:
+                    df = _normalizar_hoja(df, cols_ok)
                 df.to_excel(writer, index=False, sheet_name=nombre_hoja)
 
         # Hoja de Instrucciones (al final, como referencia)
         ahora = datetime.now().strftime("%Y-%m-%d %H:%M")
-        df_instrucciones = pd.DataFrame([
-            ("Producto", producto),
-            ("Fecha de generación", ahora),
-            ("Generador", "App Clasificador Veritrade — Generador Automático v1"),
-            ("", ""),
-            ("INSTRUCCIONES DE USO", ""),
-            ("", ""),
-            ("Este maestro fue generado automáticamente por IA a partir de una muestra de descripciones reales."),
-            ("Revisa CADA hoja antes de usarlo en producción:", ""),
-            ("  1. 1_Marcas: Verifica que las marcas sean correctas y completas."),
-            ("  2. 2_Caracteristicas: Ajusta las palabras clave y valores según tu conocimiento del producto."),
-            ("  3. 3_Tecnico_Potencia: Valida los patrones numéricos y multiplicadores."),
-            ("  4. 5_Condicionales: Revisa las reglas SI-ENTONCES."),
-            ("", ""),
-            ("NOTAS TÉCNICAS", ""),
-            ("", ""),
-            ("Las hojas marcadas _NOEDIT son generadas por IA y pueden requerir ajuste fino."),
-            ("La hoja 1b_Palabras_Ignorar (Stopwords) es genérica y puede compartirse entre líneas."),
-            ("", ""),
-            ("ESTRUCTURA DE HOJAS", ""),
-            ("  0b_Config_Linea — Parámetros de configuración de la línea"),
-            ("  1_Marcas — Diccionario de marcas (patrón → nombre estándar)"),
-            ("  1b_Palabras_Ignorar — Stopwords (palabras que nunca son marca)"),
-            ("  1c_Marca_Por_Defeito — Marca por defecto según si es producto principal"),
-            ("  2_Caracteristicas — Reglas de características categóricas"),
-            ("  3_Tecnico_Potencia_NOEDIT — Extracción de valores numéricos técnicos"),
-            ("  4_Tecnico_RegexMarca_NOEDIT — Regex avanzados de marca"),
-            ("  5_Condicionales — Reglas condicionales SI-ENTONCES"),
-        ], columns=["Parámetro", "Valor"])
+        df_instrucciones = pd.DataFrame({
+            "Parámetro": [
+                "Producto",
+                "Fecha de generación",
+                "Generador",
+                "",
+                "INSTRUCCIONES DE USO",
+                "",
+                "Este maestro fue generado automáticamente por IA a partir de una muestra de descripciones reales.",
+                "Revisa CADA hoja antes de usarlo en producción:",
+                "  1. 1_Marcas: Verifica que las marcas sean correctas y completas.",
+                "  2. 2_Caracteristicas: Ajusta las palabras clave y valores según tu conocimiento del producto.",
+                "  3. 3_Tecnico_Potencia: Valida los patrones numéricos y multiplicadores.",
+                "  4. 5_Condicionales: Revisa las reglas SI-ENTONCES.",
+                "",
+                "NOTAS TÉCNICAS",
+                "",
+                "Las hojas marcadas _NOEDIT son generadas por IA y pueden requerir ajuste fino.",
+                "La hoja 1b_Palabras_Ignorar (Stopwords) es genérica y puede compartirse entre líneas.",
+                "",
+                "ESTRUCTURA DE HOJAS",
+                "  0b_Config_Linea — Parámetros de configuración de la línea",
+                "  1_Marcas — Diccionario de marcas (patrón → nombre estándar)",
+                "  1b_Palabras_Ignorar — Stopwords (palabras que nunca son marca)",
+                "  1c_Marca_Por_Defeito — Marca por defecto según si es producto principal",
+                "  2_Caracteristicas — Reglas de características categóricas",
+                "  3_Tecnico_Potencia_NOEDIT — Extracción de valores numéricos técnicos",
+                "  4_Tecnico_RegexMarca_NOEDIT — Regex avanzados de marca",
+                "  5_Condicionales — Reglas condicionales SI-ENTONCES",
+            ],
+            "Valor": [
+                producto,
+                ahora,
+                "App Clasificador Veritrade — Generador Automático v1",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+        })
 
         df_instrucciones.to_excel(writer, index=False, sheet_name="Instrucciones")
 
@@ -747,7 +803,9 @@ def guardar_maestro_nuevo(
             df_hoja = hojas.get(nombre_hoja)
             if df_hoja is not None and len(df_hoja) > 0:
                 try:
-                    aplicar_estilo_hoja_excel(writer.sheets[nombre_hoja], df_hoja)
+                    cols_ok = COLUMNAS_HOJAS.get(nombre_hoja)
+                    df_estilo = _normalizar_hoja(df_hoja.copy(), cols_ok) if cols_ok else df_hoja
+                    aplicar_estilo_hoja_excel(writer.sheets[nombre_hoja], df_estilo)
                 except Exception:
                     pass  # Estilo es cosmético, no bloqueante
 
