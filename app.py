@@ -337,6 +337,7 @@ with tab_clasificar:
 
             api_key = None
             modelo_ia = config.MODELO_IA_DEFAULT
+            rpm_limite = 12  # default cuando IA está desactivada
             if usar_ia:
                 c_key, c_rpm = st.columns([2, 1])
                 with c_key:
