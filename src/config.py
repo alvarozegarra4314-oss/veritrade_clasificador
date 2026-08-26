@@ -63,9 +63,8 @@ COL_MARCA_STD = "Marca estandarizada"
 # Si Google retira o renombra un modelo, se cambia aquí (o en la UI)
 # sin tocar código del motor.
 # ---------------------------------------------------------------------
-MODELO_IA_DEFAULT = "gemini-3.6-flash"
+MODELO_IA_DEFAULT = "gemini-2.5-flash-lite"
 MODELOS_IA_DISPONIBLES = [
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.5-pro",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite",
 ]
