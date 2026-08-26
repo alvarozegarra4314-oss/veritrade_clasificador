@@ -573,29 +573,32 @@ with tab_clasificar:
     # =====================================================================
     # SECCIÓN 3b: INDICADOR DE PROCESAMIENTO (se muestra en reruns posteriores)
     # =====================================================================
+    @st.fragment(run_every="500ms")
+    def _fragmento_progreso_rerun():
+        if not st.session_state.get("processing_active", False):
+            return
+        if st.session_state.get("processing_done", False):
+            st.session_state.processing_active = False
+            if not st.session_state.get("_rerun_triggered"):
+                st.session_state._rerun_triggered = True
+                st.rerun()
+            return
+
+        pct = st.session_state.get("progress_pct", 0.0)
+        texto = st.session_state.get("progress_text", "Iniciando...")
+        error = st.session_state.get("progress_error")
+
+        st.progress(pct, text=texto)
+
+        if error:
+            st.error(f"❌ {error}")
+            st.session_state.processing_active = False
+
     if (
         st.session_state.get("processing_active", False)
         and not st.session_state.get("processing_done", False)
     ):
         st.write("") # Espaciador
-        @st.fragment(run_every="500ms")
-        def _fragmento_progreso_rerun():
-            pct = st.session_state.get("progress_pct", 0.0)
-            texto = st.session_state.get("progress_text", "Iniciando...")
-            error = st.session_state.get("progress_error")
-            done = st.session_state.get("processing_done", False)
-
-            st.progress(pct, text=texto)
-
-            if error:
-                st.error(f"❌ {error}")
-                st.session_state.processing_active = False
-            elif done:
-                st.session_state.processing_active = False
-                if not st.session_state.get("_rerun_triggered"):
-                    st.session_state._rerun_triggered = True
-                    st.rerun()
-
         _fragmento_progreso_rerun()
 
     # =====================================================================
