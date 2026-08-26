@@ -81,6 +81,13 @@ if "hoja_origen" not in st.session_state:
     st.session_state.hoja_origen = ""
 if "modelo_ia_usado" not in st.session_state:
     st.session_state.modelo_ia_usado = ""
+
+# Forzar uso del modelo actual de config (evita que sesiones viejas usen modelos obsoletos)
+if "_modelo_ia_forzado" not in st.session_state:
+    st.session_state._modelo_ia_forzado = config.MODELO_IA_DEFAULT
+elif st.session_state._modelo_ia_forzado != config.MODELO_IA_DEFAULT:
+    st.session_state._modelo_ia_forzado = config.MODELO_IA_DEFAULT
+    st.session_state.modelo_ia_usado = ""
 if "processing_active" not in st.session_state:
     st.session_state.processing_active = False
 if "processing_done" not in st.session_state:

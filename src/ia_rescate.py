@@ -273,6 +273,7 @@ class RescatadorIA:
         )
 
         self.modelo_nombre = modelo
+        logger.info("RescateIA inicializado con modelo: %s", modelo)
 
         # Capa 0: caché en memoria (vida = duración del proceso/sesión Streamlit)
         self._cache_mem: dict[str, ResultadoRescateIA] = {}
@@ -396,6 +397,8 @@ class RescatadorIA:
             self._esperar_rate_limit()
             try:
                 self.llamadas_realizadas += 1
+                if self.llamadas_realizadas == 1:
+                    logger.info("Primera llamada a Gemini — modelo: %s", self.modelo_nombre)
                 respuesta = self.client.models.generate_content(
                     model=self.modelo_nombre,
                     contents=prompt,
