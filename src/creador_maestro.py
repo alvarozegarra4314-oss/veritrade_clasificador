@@ -196,7 +196,7 @@ def muestrear_veritrade(
                 ])
                 muestras_bucket.append(elegidos)
 
-        df_muestra = pd.concat(muestras_bucket).drop_duplicates(subset=["_dedup_key"] if "_dedup_key" in df_completo.columns else [])
+        df_muestra = pd.concat(muestras_bucket)
 
         # Si quedan cortas, rellenar con muestreo aleatorio determinista
         if len(df_muestra) < n_objetivo:
