@@ -237,7 +237,10 @@ def procesar_dataframe_dinamico(
             if rescato_algo:
                 fila["Rescatado_Por_IA"] = True
 
-    df_res = pd.DataFrame(resultados).drop(columns=["_desc_clean_ia"])
+    df_res = pd.DataFrame(resultados).drop(
+        columns=["_desc_clean_ia", "Marca_Declarada", var_principal],
+        errors="ignore",
+    )
     df_final = pd.concat([df_raw.reset_index(drop=True), df_res.reset_index(drop=True)], axis=1)
 
     # Exponemos lo aprendido en esta corrida sobre el propio objeto

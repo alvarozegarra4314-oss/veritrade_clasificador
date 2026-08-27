@@ -101,7 +101,7 @@ if "progress_error" not in st.session_state:
 
 def _obtener_api_key_de_secrets() -> str:
     try:
-        return st.secrets.get("GEMINI_API_KEY", "")
+        return st.secrets.get("GEMINI_API_KEY", "").strip()
     except Exception:
         return ""
 
@@ -113,6 +113,7 @@ def _probar_api_key(api_key: str, modelo: str):
     repetir la llamada si el usuario vuelve a pulsar con los mismos valores."""
     try:
         from google import genai
+        api_key = api_key.strip()
         cliente = genai.Client(api_key=api_key)
         respuesta = cliente.models.generate_content(
             model=modelo,
@@ -357,7 +358,7 @@ with tab_clasificar:
                         type="password",
                         value=_obtener_api_key_de_secrets(),
                         help="Se toma de .streamlit/secrets.toml si existe; si no, pégala aquí.",
-                    )
+                    ).strip()
                     if not api_key:
                         st.warning("Se requiere API Key de Gemini.")
                 with c_rpm:
@@ -986,7 +987,7 @@ with tab_crear:
                     value=api_key_creador,
                     key="api_key_creador",
                     help="Requerida para generar el maestro. Se toma de secrets.toml si existe.",
-                )
+                ).strip()
             with c_modelo_gen:
                 modelo_gen = st.selectbox(
                     "Modelo",

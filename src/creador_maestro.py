@@ -357,7 +357,10 @@ Columnas EXACTAS: "Es_Producto_Principal" | "Marca_Default"
 Columnas EXACTAS: "Variable" | "Valor_Resultado" | "Palabra_Clave" | "Prioridad" | "Comentario"
 - "Variable": nombre de la característica categórica.
 - "Valor_Resultado": valor normalizado de la característica.
-- "Palabra_Clave": palabra o frase que aparece en las descripciones (o regex simple con |).
+- "Palabra_Clave": UNA sola palabra o frase corta que aparece en las descripciones.
+  ⚠️ NUNCA uses el carácter `|` para separar palabras. Cada variación es una FILA separada.
+  Ejemplo INCORRECTO: "ONLINE|ON-LINE|ON LINE"  (UNA sola fila con pipes)
+  Ejemplo CORRECTO: 3 filas separadas → "ONLINE" | "ON-LINE" | "ON LINE"
 - "Prioridad": 1=alta, 2=media, 3=baja.
 - "Comentario": explicación breve de por qué esta regla existe.
 
@@ -447,7 +450,8 @@ Si no llegas a los mínimos, REVISA de nuevo las descripciones. Siempre hay más
 3. Los nombres de columnas DEBEN ser EXACTAMENTE los del template (ver arriba).
 4. NUNCA inventar datos que no estén en las descripciones. Si un patrón no existe, no lo inventes.
 5. Los patrones regex deben ser FUNCIONALES (probados mentalmente contra las descripciones).
-6. Devolver SOLO el JSON válido, sin texto adicional."""
+6. En "2_Caracteristicas", la columna "Palabra_Clave" debe contener UNA sola palabra o frase por fila. NUNCA uses `|` para separar múltiples palabras en la misma celda. Cada variación es una fila separada.
+7. Devolver SOLO el JSON válido, sin texto adicional."""
 
     user_prompt = f"""## CONTEXTO DEL PRODUCTO
 **Producto a clasificar:** {producto}
@@ -475,6 +479,12 @@ ONLINE, ON-LINE, ON LINE, ONLINE DOBLE CONVERSION, DOBLE CONVERSION, DOUBLE CONV
 OFFLINE, OFF-LINE, OFF LINE, STANDBY, STAND-BY, STAND BY,
 LINE INTERACTIVE, LINE-INTERACTIVE, LINEAR, AUXILIAR, etc.
 CADA variación es una fila separada con su Palabra_Clave y Prioridad.
+Ejemplo JSON correcto:
+[
+  {"Variable":"Tipo_Tecnologia","Valor_Resultado":"Online","Palabra_Clave":"ONLINE","Prioridad":1,"Comentario":""},
+  {"Variable":"Tipo_Tecnologia","Valor_Resultado":"Online","Palabra_Clave":"ON-LINE","Prioridad":2,"Comentario":""},
+  {"Variable":"Tipo_Tecnologia","Valor_Resultado":"Online","Palabra_Clave":"ON LINE","Prioridad":2,"Comentario":""}
+]
 
 ### EJEMPLO DE RIQUEZA ESPERADA para "1_Marcas":
 Incluir TODAS las marcas que aparezcan en las descripciones, incluyendo variantes:
