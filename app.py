@@ -387,6 +387,47 @@ with tab_clasificar:
                     else:
                         st.warning("Ingresa una API Key primero.")
 
+def _generar_excel_resultado(df_resultado, kpis, linea, archivo_origen, hoja_origen, modelo_ia_usado):
+    """Genera el buffer Excel (Resumen + Clasificación) de forma lazy.
+    Solo se ejecuta cuando el usuario pulsa descargar, NO durante el procesamiento.
+    Esto evita que el hilo se bloquee 10-30s generando openpyxl para 14k+ filas."""
+    _columnas_auxiliares_no_exportar = {"Marca_Declarada", "Tipo_Producto_Detallado"}
+    _df_export = df_resultado.drop(
+        columns=[c for c in df_resultado.columns if c in _columnas_auxiliares_no_exportar],
+        errors="ignore",
+    )
+    _df_export = sanitizar_dataframe_para_excel(_df_export)
+    _total_filas = len(df_resultado)
+    _cobertura_pct = f"{kpis.get('con_producto', 0) / max(_total_filas, 1):.1%}"
+    _df_resumen = pd.DataFrame([
+        ("Fecha de proceso", datetime.now().strftime("%Y-%m-%d %H:%M")),
+        ("Archivo origen", archivo_origen),
+        ("Hoja procesada", hoja_origen),
+        ("Línea de producto", linea),
+        ("Motor de clasificación", modelo_ia_usado),
+        ("Total de filas", f"{kpis.get('total', 0):,}"),
+        ("Con producto identificado", f"{kpis.get('con_producto', 0):,} ({_cobertura_pct})"),
+        ("Sin producto identificado", f"{kpis.get('sin_producto', 0):,}"),
+        ("Sin marca (genérica)", f"{kpis.get('sin_marca', 0):,}"),
+        ("Pendientes de revisión", f"{kpis.get('pendientes', 0):,}"),
+        ("Rescatados por IA", f"{kpis.get('rescatados', 0):,}"),
+        ("Resueltos desde caché IA (ahorro)", f"{kpis.get('cache', 0):,}"),
+        ("Nuevas reglas aprendidas", f"+{kpis.get('nuevas', 0)}"),
+        ("Errores de IA", f"{kpis.get('errores', 0):,}"),
+    ], columns=["Parametro", "Valor"])
+
+    output_buf = BytesIO()
+    with pd.ExcelWriter(output_buf, engine="openpyxl") as writer:
+        _df_resumen.to_excel(writer, index=False, sheet_name="Resumen")
+        _df_export.to_excel(writer, index=False, sheet_name="Clasificacion")
+        for nh, dh in (("Resumen", _df_resumen), ("Clasificacion", _df_export)):
+            try:
+                aplicar_estilo_hoja_excel(writer.sheets[nh], dh)
+            except Exception:
+                pass
+    return output_buf.getvalue()
+
+
     # =====================================================================
     # SECCIÓN 3: ACCIÓN PRINCIPAL (PROCESAMIENTO)
     # =====================================================================
@@ -532,40 +573,13 @@ with tab_clasificar:
                             _maestro_opt_data = _buf_opt.getvalue()
                             _kpis["nuevas"] = _resumen_opt.get("marcas_agregadas", 0) + _resumen_opt.get("caracteristicas_agregadas", 0)
 
-                    # ---- Buffer Excel ----
-                    _df_export = sanitizar_dataframe_para_excel(_df_resultado)
-                    _cobertura_pct = f"{_kpis['con_producto'] / max(_total_filas, 1):.1%}"
-                    _df_resumen = pd.DataFrame([
-                        ("Fecha de proceso", datetime.now().strftime("%Y-%m-%d %H:%M")),
-                        ("Archivo origen", _raw_bytes.__class__.__name__),  # placeholder, real name passed via shared
-                        ("Total de filas", f"{_kpis['total']:,}"),
-                        ("Con producto identificado", f"{_kpis['con_producto']:,} ({_cobertura_pct})"),
-                        ("Sin producto identificado", f"{_kpis['sin_producto']:,}"),
-                        ("Sin marca (genérica)", f"{_kpis['sin_marca']:,}"),
-                        ("Pendientes de revisión", f"{_kpis['pendientes']:,}"),
-                        ("Rescatados por IA", f"{_kpis['rescatados']:,}"),
-                        ("Resueltos desde caché IA (ahorro)", f"{_kpis['cache']:,}"),
-                        ("Nuevas reglas aprendidas", f"+{_kpis['nuevas']}"),
-                        ("Errores de IA", f"{_kpis['errores']:,}"),
-                    ], columns=["Parametro", "Valor"])
-
-                    _output_buf = BytesIO()
-                    with pd.ExcelWriter(_output_buf, engine="openpyxl") as _writer:
-                        _df_resumen.to_excel(_writer, index=False, sheet_name="Resumen")
-                        _df_export.to_excel(_writer, index=False, sheet_name="Clasificacion")
-                        for _nh, _dh in (("Resumen", _df_resumen), ("Clasificacion", _df_export)):
-                            try:
-                                aplicar_estilo_hoja_excel(_writer.sheets[_nh], _dh)
-                            except Exception:
-                                pass
-
-                    # Store everything in shared dict (thread-safe)
+                    # Store results in shared dict (thread-safe)
+                    # NO generamos Excel aquí: se genera lazy al dar click en descargar.
                     _shared["df_resultado"] = _df_resultado
                     _shared["df_pendientes"] = _df_resultado[_pend_mask].copy()
                     _shared["kpis"] = _kpis
                     _shared["maestro_opt_data"] = _maestro_opt_data
                     _shared["resumen_opt"] = _resumen_opt
-                    _shared["df_export_data"] = _output_buf.getvalue()
 
                 except Exception as e:
                     _shared["progress_error"] = str(e)
@@ -602,7 +616,7 @@ with tab_clasificar:
             st.session_state.kpis = _sh.get("kpis")
             st.session_state.maestro_opt_data = _sh.get("maestro_opt_data")
             st.session_state.resumen_opt = _sh.get("resumen_opt")
-            st.session_state.df_export_data = _sh.get("df_export_data")
+            st.session_state.df_export_data = None  # Se genera lazy al descargar
             st.session_state.proceso_completado = True
             st.session_state.processing_active = False
             if not st.session_state.get("_rerun_triggered"):
@@ -670,23 +684,35 @@ with tab_clasificar:
                 st.dataframe(df_pendientes.head(100), width="stretch", hide_index=True)
                 if len(df_pendientes) > 100:
                     st.caption(f"Mostrando 100 de {len(df_pendientes):,} filas. Descarga el Excel para ver todas.")
-                buffer_pend = BytesIO()
-                df_pend_export = sanitizar_dataframe_para_excel(df_pendientes)
-                with pd.ExcelWriter(buffer_pend, engine="openpyxl") as writer:
-                    df_pend_export.to_excel(writer, index=False, sheet_name="Pendientes")
-                    try:
-                        aplicar_estilo_hoja_excel(writer.sheets["Pendientes"], df_pend_export)
-                    except Exception:
-                        pass
                 sufijo_fecha = datetime.now().strftime("%Y-%m-%d")
-                st.download_button(
-                    label="📥 Descargar pendientes (Excel)",
-                    data=buffer_pend.getvalue(),
-                    file_name=f"Pendientes_{st.session_state.linea_producto}_{sufijo_fecha}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_descarga_pendientes",
+                if st.button(
+                    "📥 Preparar descarga de pendientes…",
+                    key="btn_preparar_pendientes",
                     width="stretch",
-                )
+                ):
+                    with st.spinner("Generando Excel de pendientes…"):
+                        buffer_pend = BytesIO()
+                        df_pend_export = df_pendientes.drop(
+                            columns=[c for c in df_pendientes.columns if c in {"Marca_Declarada", "Tipo_Producto_Detallado"}],
+                            errors="ignore",
+                        )
+                        df_pend_export = sanitizar_dataframe_para_excel(df_pend_export)
+                        with pd.ExcelWriter(buffer_pend, engine="openpyxl") as writer:
+                            df_pend_export.to_excel(writer, index=False, sheet_name="Pendientes")
+                            try:
+                                aplicar_estilo_hoja_excel(writer.sheets["Pendientes"], df_pend_export)
+                            except Exception:
+                                pass
+                        st.session_state._pendExcel_buf = buffer_pend.getvalue()
+                if st.session_state.get("_pendExcel_buf"):
+                    st.download_button(
+                        label="📥 Descargar pendientes (Excel)",
+                        data=st.session_state._pendExcel_buf,
+                        file_name=f"Pendientes_{st.session_state.linea_producto}_{sufijo_fecha}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="btn_descarga_pendientes",
+                        width="stretch",
+                    )
 
         st.write("") # Espaciador
     
@@ -715,30 +741,46 @@ with tab_clasificar:
                     width="stretch",
                     key="btn_descarga_resultado"
                 )
+            else:
+                if st.button(
+                    "📊 Generar y descargar Resultado (Excel)",
+                    width="stretch",
+                    key="btn_gen_resultado",
+                ):
+                    with st.spinner("Generando Excel… Esto puede tardar unos segundos para archivos grandes."):
+                        st.session_state.df_export_data = _generar_excel_resultado(
+                            st.session_state.df_resultado,
+                            st.session_state.kpis,
+                            st.session_state.get("linea_producto", "Producto"),
+                            st.session_state.get("archivo_origen", ""),
+                            st.session_state.get("hoja_origen", ""),
+                            st.session_state.get("modelo_ia_usado", ""),
+                        )
+                    st.rerun()
 
-        # Vista previa con filtro de texto (solo columnas relevantes -> rápido)
-        st.write("") # Espaciador
-        st.markdown("#### 📋 Vista Previa de los Datos")
-        df_resultado = st.session_state.df_resultado
-        filtro = st.text_input("🔎 Filtrar por descripción, marca o producto (texto libre)", value="")
-        df_vista = df_resultado
-        if filtro.strip():
-            cols_filtro = [
-                c for c in df_resultado.columns
-                if any(k in str(c).upper() for k in COLS_BUSQUEDA_FILTRO)
-            ]
-            if not cols_filtro:  # archivo con nombres atípicos: usar las primeras columnas
-                cols_filtro = list(df_resultado.columns[:6])
-            mask = df_resultado[cols_filtro].astype(str).apply(
-                lambda col: col.str.contains(filtro.strip(), case=False, na=False)
-            ).any(axis=1)
-            df_vista = df_resultado[mask]
-        n_mostradas = min(len(df_vista), FILAS_VISTA_PREVIA)
-        st.caption(
-            f"Mostrando {n_mostradas:,} de {len(df_vista):,} filas coincidentes "
-            f"(total del archivo: {len(df_resultado):,})"
-        )
-        st.dataframe(df_vista.head(FILAS_VISTA_PREVIA), width="stretch", hide_index=True)
+    # Vista previa con filtro de texto (solo columnas relevantes -> rápido)
+    st.write("") # Espaciador
+    st.markdown("#### 📋 Vista Previa de los Datos")
+    df_resultado = st.session_state.df_resultado
+    filtro = st.text_input("🔎 Filtrar por descripción, marca o producto (texto libre)", value="")
+    df_vista = df_resultado
+    if filtro.strip():
+        cols_filtro = [
+            c for c in df_resultado.columns
+            if any(k in str(c).upper() for k in COLS_BUSQUEDA_FILTRO)
+        ]
+        if not cols_filtro:  # archivo con nombres atípicos: usar las primeras columnas
+            cols_filtro = list(df_resultado.columns[:6])
+        mask = df_resultado[cols_filtro].astype(str).apply(
+            lambda col: col.str.contains(filtro.strip(), case=False, na=False)
+        ).any(axis=1)
+        df_vista = df_resultado[mask]
+    n_mostradas = min(len(df_vista), FILAS_VISTA_PREVIA)
+    st.caption(
+        f"Mostrando {n_mostradas:,} de {len(df_vista):,} filas coincidentes "
+        f"(total del archivo: {len(df_resultado):,})"
+    )
+    st.dataframe(df_vista.head(FILAS_VISTA_PREVIA), width="stretch", hide_index=True)
 
 # =====================================================================
 # SECCIÓN 5: CREAR MAESTRO (DENTRO DEL TAB CREAR)
