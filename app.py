@@ -389,7 +389,10 @@ def _generar_excel_resultado(df_resultado, kpis, linea, archivo_origen, hoja_ori
     """Genera el buffer Excel (Resumen + Clasificación) de forma lazy.
     Solo se ejecuta cuando el usuario pulsa descargar, NO durante el procesamiento.
     Esto evita que el hilo se bloquee 10-30s generando openpyxl para 14k+ filas."""
-    _columnas_auxiliares_no_exportar = {"Marca_Declarada", "Tipo_Producto_Detallado"}
+    _columnas_auxiliares_no_exportar = {
+        "Marca_Declarada", "Tipo_Producto_Detallado",
+        "Producto_Texto_Desc1", "Modelo_Serie_Desc1",
+    }
     _df_export = df_resultado.drop(
         columns=[c for c in df_resultado.columns if c in _columnas_auxiliares_no_exportar],
         errors="ignore",
@@ -681,7 +684,10 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                 with st.spinner("Generando Excel de pendientes…"):
                     buffer_pend = BytesIO()
                     df_pend_export = df_pendientes.drop(
-                        columns=[c for c in df_pendientes.columns if c in {"Marca_Declarada", "Tipo_Producto_Detallado"}],
+                        columns=[c for c in df_pendientes.columns if c in {
+                            "Marca_Declarada", "Tipo_Producto_Detallado",
+                            "Producto_Texto_Desc1", "Modelo_Serie_Desc1",
+                        }],
                         errors="ignore",
                     )
                     df_pend_export = sanitizar_dataframe_para_excel(df_pend_export)
