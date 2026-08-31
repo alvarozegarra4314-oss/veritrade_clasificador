@@ -7,6 +7,43 @@ from src.texto_utils import (
     construir_patron_desde_palabras,
 )
 
+
+def normalizar_operador_excel(valor):
+    """Normaliza operadores almacenados en Excel para que funcionen como comparadores."""
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return ""
+
+    texto = str(valor).strip().replace("'", "").upper()
+    texto = re.sub(r"\s+", "", texto)
+
+    aliases = {
+        "=": "==",
+        "==": "==",
+        "EQ": "==",
+        "IGUAL": "==",
+        "IGUALA": "==",
+        "EQUAL": "==",
+        "!=": "!=",
+        "<>": "!=",
+        "NE": "!=",
+        "DISTINTO": "!=",
+        "DIFERENTE": "!=",
+        "NOTEQUAL": "!=",
+        ">": ">",
+        ">=": ">=",
+        "<": "<",
+        "<=": "<=",
+        "BETWEEN": "BETWEEN",
+        "ENTRE": "BETWEEN",
+        "CONTAINS": "CONTAINS",
+        "CONTIENE": "CONTAINS",
+        "NOT_CONTAINS": "NOT_CONTAINS",
+        "NO_CONTIENE": "NOT_CONTAINS",
+        "NOTCONTAINS": "NOT_CONTAINS",
+    }
+    return aliases.get(texto, texto)
+
+
 class CargarMaestro:
     def __init__(self, ruta_excel):
         self.ruta_excel = ruta_excel
@@ -209,7 +246,7 @@ class CargarMaestro:
                                 regla_valida = False
                                 break
 
-                            operador = str(fila["Operador"]).strip().upper()
+                            operador = normalizar_operador_excel(fila.get("Operador"))
                             valor_1 = parse_float(fila.get("Valor_1"), default=None)
                             valor_2 = parse_float(fila.get("Valor_2"), default=None)
                             # Para operadores de igualdad/desigualdad el valor puede

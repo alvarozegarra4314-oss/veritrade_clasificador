@@ -16,6 +16,7 @@ Ejecutar:  python -m pytest tests/ -v
 import pandas as pd
 import pytest
 
+from src.maestro.loader import normalizar_operador_excel
 from src.maestro.reglas import (
     normalizar_numero_extraido,
     es_indicador_sin_marca,
@@ -174,6 +175,22 @@ def test_evaluar_categorica_condicion(actual, operador, esperado_val, resultado)
     assert (
         evaluar_categorica_condicion(actual, operador, esperado_val) is resultado
     )
+
+
+@pytest.mark.parametrize(
+    "valor,esperado",
+    [
+        ("==", "=="),
+        ("'==", "=="),
+        ("=", "=="),
+        ("EQ", "=="),
+        ("!=", "!="),
+        ("<>", "!="),
+        ("BETWEEN", "BETWEEN"),
+    ],
+)
+def test_normalizar_operador_excel_aliases(valor, esperado):
+    assert normalizar_operador_excel(valor) == esperado
 
 
 # ----------------------------------------------------------------------
