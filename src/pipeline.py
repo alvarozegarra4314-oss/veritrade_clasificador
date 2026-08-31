@@ -237,8 +237,12 @@ def procesar_dataframe_dinamico(
             if rescato_algo:
                 fila["Rescatado_Por_IA"] = True
 
+    # Mantenemos la columna de la variable principal (ej. "Tipo") en el
+    # resultado final para que el usuario la vea, además del alias
+    # "Producto_Declarado". Antes se eliminaba var_principal, lo que hacía
+    # que la característica principal (ej. "Tipo") no apareciera en el Excel.
     df_res = pd.DataFrame(resultados).drop(
-        columns=["_desc_clean_ia", "Marca_Declarada", var_principal],
+        columns=["_desc_clean_ia", "Marca_Declarada"],
         errors="ignore",
     )
     df_final = pd.concat([df_raw.reset_index(drop=True), df_res.reset_index(drop=True)], axis=1)
