@@ -25,6 +25,7 @@ from src.maestro.reglas import (
     extraer_producto_y_modelo_desc1,
     evaluar_potencia_numerica_condicion,
     evaluar_categorica_condicion,
+    evaluar_caracteristica_categorica,
 )
 from src.texto_utils import (
     limpiar_texto,
@@ -231,3 +232,118 @@ def test_identificar_columnas_descripcion_sin_coincidencias():
 def test_construir_patron_desde_palabras_espacios_flexibles():
     patron = construir_patron_desde_palabras(["UPS Online"])
     assert patron == r"UPS\s+ONLINE"
+
+
+# ----------------------------------------------------------------------
+# evaluar_caracteristica_categorica: fallback flexible de frases largas
+# ----------------------------------------------------------------------
+import re as _re
+
+
+def _maestro_con_reglas(reglas):
+    """Construye un mock de maestro con dict_caracteristicas en el formato
+    (regex_compilado, valor_resultado, palabras_clave)."""
+    class _M:
+        pass
+    m = _M()
+    m.dict_caracteristicas = {"Tipo": reglas}
+    return m
+
+
+def _regla_estricta(patron, valor):
+    """Regla estricta (2 elementos, sin palabras_clave -> no entra al fallback)."""
+    regex = _re.compile(fr'(?:^|(?<=\W))({patron})(?:$|(?=\W))', _re.IGNORECASE)
+    return (regex, valor)
+
+
+def _regla_con_fallback(patron, valor):
+    """Regla con palabras_clave (3 elementos). patron usa \\s+ para espacios."""
+    regex = _re.compile(fr'(?:^|(?<=\W))({patron})(?:$|(?=\W))', _re.IGNORECASE)
+    palabras = patron.split('|')
+    return (regex, valor, palabras)
+
+
+def test_fallback_flexible_frase_larga_pegada_a_numero():
+    # Frase de 3 palabras: "interruptor automatico magnetotermico"
+    reglas = [
+        _regla_con_fallback(r"interruptor\s+automatico\s+magnetotermico", "MCCB"),
+    ]
+    maestro = _maestro_con_reglas(reglas)
+    # La pasada estricta NO coincide (pegada a un número), pero el fallback sí.
+    assert evaluar_caracteristica_categorica(
+        "interruptor automatico magnetotermico25A", "Tipo", maestro
+    ) == "MCCB"
+
+
+def test_fallback_flexible_frase_larga_pegada_a_letra():
+    reglas = [
+        _regla_con_fallback(r"interruptor\s+automatico\s+magnetotermico", "MCCB"),
+    ]
+    maestro = _maestro_con_reglas(reglas)
+    assert evaluar_caracteristica_categorica(
+        "interruptor automatico magnetotermicoX", "Tipo", maestro
+    ) == "MCCB"
+
+
+def test_fallback_no_aplica_a_frase_corta():
+    # Frase de 2 palabras NO entra al fallback flexible.
+    reglas = [
+        _regla_con_fallback(r"proteccion\s+diferencial", "DIFERENCIAL"),
+    ]
+    maestro = _maestro_con_reglas(reglas)
+    # Pegada a un número: la pasada estricta no coincide y el fallback
+    # tampoco (solo 2 palabras), así que devuelve None.
+    assert evaluar_caracteristica_categorica(
+        "proteccion diferencial30A", "Tipo", maestro
+    ) is None
+
+
+def test_fallback_respeta_negacion_previa():
+    reglas = [
+        _regla_con_fallback(r"interruptor\s+automatico\s+magnetotermico", "MCCB"),
+    ]
+    maestro = _maestro_con_reglas(reglas)
+    # Negación previa: no debe clasificar.
+    assert evaluar_caracteristica_categorica(
+        "SIN interruptor automatico magnetotermico", "Tipo", maestro
+    ) is None
+
+
+def test_pasada_estricta_sigue_funcionando():
+    # Una regla estricta (sin fallback) debe seguir funcionando igual.
+    reglas = [
+        _regla_estricta(r"XT", "XT"),
+    ]
+    maestro = _maestro_con_reglas(reglas)
+    # 'XT' seguido de espacio: match estricto.
+    assert evaluar_caracteristica_categorica("interruptor XT 25A", "Tipo", maestro) == "XT"
+    # 'XT1': la pasada estricta NO coincide (número pegado), y no hay fallback
+    # (regla de 2 elementos), así que devuelve None.
+    assert evaluar_caracteristica_categorica("interruptor XT1", "Tipo", maestro) is None
+
+
+def test_fallback_palabra_individual_3_caracteres_cubre_derivados():
+    # Palabra individual de 3+ caracteres: 'XT1' entra al fallback flexible
+    # y cubre sus derivados pegados a letras/números.
+    reglas = [
+        _regla_con_fallback(r"XT1", "MCCB"),
+    ]
+    maestro = _maestro_con_reglas(reglas)
+    # Derivados pegados: la pasada estricta no coincide, el fallback sí.
+    assert evaluar_caracteristica_categorica("interruptor XT1H", "Tipo", maestro) == "MCCB"
+    assert evaluar_caracteristica_categorica("interruptor XT1S", "Tipo", maestro) == "MCCB"
+    # Caso normal (con límite): la pasada estricta ya lo resuelve.
+    assert evaluar_caracteristica_categorica("interruptor XT1 25A", "Tipo", maestro) == "MCCB"
+
+
+def test_fallback_no_aplica_a_palabra_individual_2_caracteres():
+    # Palabra individual de 2 caracteres ('XT') NO entra al fallback flexible,
+    # así que no cubre 'XT1' (que es un derivado pegado a un número).
+    reglas = [
+        _regla_con_fallback(r"XT", "MCCB"),
+    ]
+    maestro = _maestro_con_reglas(reglas)
+    # 'XT1' pegado a número: ni la pasada estricta ni el fallback lo resuelven.
+    assert evaluar_caracteristica_categorica("interruptor XT1", "Tipo", maestro) is None
+    # 'XT' con límite: la pasada estricta sí lo resuelve.
+    assert evaluar_caracteristica_categorica("interruptor XT 25A", "Tipo", maestro) == "MCCB"

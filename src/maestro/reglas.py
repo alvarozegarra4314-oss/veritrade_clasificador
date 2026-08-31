@@ -296,17 +296,80 @@ def evaluar_caracteristica_categorica(desc_clean: str, var_name: str, maestro) -
     """
     Evalúa las reglas ordenadas por prioridad para una variable categórica,
     ignorando coincidencias que estén negadas (ej: 'NO ONLINE', 'SIN BATERIA').
+
+    Flujo en dos pasadas:
+      1. PASADA ESTRICTA: usa el regex con límites de palabra (comportamiento
+         original). Ej: 'XT' NO coincide con 'XT1' porque tras 'XT' viene un
+         número (carácter de palabra), no un límite.
+      2. PASADA FLEXIBLE (fallback): SOLO si la pasada estricta no encontró
+         nada. Entran las palabras clave que cumplan el criterio de longitud:
+         a) Frases (2+ palabras separadas por espacio): entran si tienen 3+
+            palabras (ej. 'interruptor automatico magnetotermico').
+         b) Palabras individuales (1 palabra): entran si tienen 3+ caracteres
+            (letras/dígitos). Ej: 'XT1' (3 chars) SÍ entra y cubre sus
+            derivados pegados ('XT1H', 'XT1S'); 'XT' (2 chars) NO entra.
+         En ambos casos el patrón flexible NO exige límites de palabra al
+         inicio ni al final, de modo que la clave puede estar pegada a
+         números o letras.
     """
     if not desc_clean or var_name not in maestro.dict_caracteristicas:
         return None
 
-    # Recorre las reglas precompiladas y ordenadas por prioridad
-    for regex_comp, valor_resultado in maestro.dict_caracteristicas[var_name]:
+    reglas = maestro.dict_caracteristicas[var_name]
+
+    # ------------------------------------------------------------------
+    # PASADA 1: ESTRICTA (límites de palabra). Comportamiento original.
+    # ------------------------------------------------------------------
+    for regla in reglas:
+        regex_comp = regla[0]
+        valor_resultado = regla[1]
         # Busca todas las coincidencias del patrón en la descripción
         for match in regex_comp.finditer(desc_clean):
             pos_inicio = match.start()
-            
             # Si la coincidencia NO está negada, es un match válido
+            if not tiene_negacion_previa(desc_clean, pos_inicio):
+                return valor_resultado
+
+    # ------------------------------------------------------------------
+    # PASADA 2: FLEXIBLE (fallback). Se ejecuta únicamente si la pasada
+    # estricta no encontró nada. Entran las claves que cumplan el criterio
+    # de longitud (frases de 3+ palabras, o palabras individuales de 3+
+    # caracteres). El patrón flexible NO exige límites de palabra.
+    # ------------------------------------------------------------------
+    for regla in reglas:
+        # regla = (regex_comp, valor_resultado, palabras_clave)
+        if len(regla) < 3:
+            continue
+        palabras_clave = regla[2]
+        valor_resultado = regla[1]
+
+        # Selecciona las claves que cumplen el criterio de longitud:
+        #  - Frases (contienen \s+): 3+ palabras.
+        #  - Palabra individual (sin \s+): 3+ caracteres.
+        claves_flexibles = []
+        for p in palabras_clave:
+            num_palabras = p.count(r'\s+') + 1
+            if num_palabras >= 3:
+                claves_flexibles.append(p)
+            elif num_palabras == 1:
+                # Longitud en caracteres, ignorando el escape de espacios.
+                longitud = len(p.replace(r'\s+', ''))
+                if longitud >= 3:
+                    claves_flexibles.append(p)
+
+        if not claves_flexibles:
+            continue
+
+        # Patrón flexible: sin límites de palabra al inicio ni al final.
+        # La clave puede estar pegada a números o letras.
+        patron_flexible = '|'.join(claves_flexibles)
+        try:
+            regex_flex = re.compile(fr'({patron_flexible})', re.IGNORECASE)
+        except re.error:
+            continue
+
+        for match in regex_flex.finditer(desc_clean):
+            pos_inicio = match.start()
             if not tiene_negacion_previa(desc_clean, pos_inicio):
                 return valor_resultado
 

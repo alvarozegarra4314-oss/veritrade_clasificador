@@ -166,7 +166,15 @@ class CargarMaestro:
                         if patron_str:
                             try:
                                 regex_compilado = re.compile(fr'(?:^|(?<=\W))({patron_str})(?:$|(?=\W))', re.IGNORECASE)
-                                reglas_var.append((regex_compilado, resultado))
+                                # Guardamos también las palabras clave originales y su
+                                # conteo de palabras. Se usan para el fallback flexible
+                                # de frases largas (3+ palabras) cuando el match estricto
+                                # no encuentra nada. Cada palabra clave es una alternativa
+                                # separada por '|' en patron_str.
+                                palabras_clave = [
+                                    p for p in patron_str.split('|') if p
+                                ]
+                                reglas_var.append((regex_compilado, resultado, palabras_clave))
                             except re.error:
                                 continue
                     self.dict_caracteristicas[var] = reglas_var
