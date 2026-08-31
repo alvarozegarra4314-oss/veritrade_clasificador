@@ -186,8 +186,10 @@ def _cargar_maestro_incluido():
     return None, None
 
 
-@st.cache_data(show_spinner=False)
 def ejecutar_pipeline_reglas_cached(bytes_raw: bytes, bytes_maestro: bytes, hoja: str):
+    """Lee el Excel crudo y el maestro SIN caché de Streamlit (no se puede
+    usar @st.cache_data dentro de un hilo background). El overhead de
+    re-leer el Excel es mínimo comparado con el pipeline completo."""
     df_raw = pd.read_excel(BytesIO(bytes_raw), sheet_name=hoja, engine="openpyxl")
     maestro = CargarMaestro(BytesIO(bytes_maestro))
     return df_raw, maestro
@@ -469,6 +471,7 @@ if procesar:
         st.session_state._thread_shared = _shared
         st.session_state.processing_active = True
         st.session_state.processing_done = False
+        st.session_state.proceso_completado = False
         st.session_state._rerun_triggered = False
 
         def _procesar_en_hilo(_shared, _raw_bytes, _maestro_bytes, _hoja, _usar_ia, _api_key, _rpm, _modelo):
@@ -608,6 +611,7 @@ def _fragmento_progreso_rerun():
         st.session_state.df_export_data = None
         st.session_state.proceso_completado = True
         st.session_state.processing_active = False
+        st.session_state.processing_done = True
         if not st.session_state.get("_rerun_triggered"):
             st.session_state._rerun_triggered = True
             st.rerun()
@@ -618,179 +622,132 @@ def _fragmento_progreso_rerun():
     st.progress(pct, text=texto)
 
 
-if (
-    st.session_state.get("processing_active", False)
-    and not st.session_state.get("processing_done", False)
-):
+if st.session_state.get("processing_active", False):
     st.write("")
     _fragmento_progreso_rerun()
 
-    # =====================================================================
-    # SECCIÓN 3b: INDICADOR DE PROCESAMIENTO (se muestra en reruns posteriores)
-    # =====================================================================
-    @st.fragment(run_every="500ms")
-    def _fragmento_progreso_rerun():
-        _sh = st.session_state.get("_thread_shared")
-        if _sh is None or not st.session_state.get("processing_active", False):
-            return
+# =====================================================================
+# SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)
+# =====================================================================
+if st.session_state.get("proceso_completado") and st.session_state.df_resultado is not None:
+    st.write("")
+    st.divider()
 
-        # Sync progress from shared dict → session_state
-        st.session_state.progress_pct = _sh.get("progress_pct", 0.0)
-        st.session_state.progress_text = _sh.get("progress_text", "Iniciando...")
-        st.session_state.progress_error = _sh.get("progress_error")
+    col_titulo, col_tag = st.columns([4, 1])
+    with col_titulo:
+        st.markdown("### 📥 Resultados y Descargas")
+    with col_tag:
+        st.success("✅ Proceso Finalizado")
 
-        if _sh.get("done"):
-            # Copy final results from shared dict to session_state
-            st.session_state.df_resultado = _sh.get("df_resultado")
-            st.session_state.df_pendientes = _sh.get("df_pendientes")
-            st.session_state.kpis = _sh.get("kpis")
-            st.session_state.maestro_opt_data = _sh.get("maestro_opt_data")
-            st.session_state.resumen_opt = _sh.get("resumen_opt")
-            st.session_state.df_export_data = None  # Se genera lazy al descargar
-            st.session_state.proceso_completado = True
-            st.session_state.processing_active = False
-            if not st.session_state.get("_rerun_triggered"):
-                st.session_state._rerun_triggered = True
-                st.rerun()
-            return
+    kpis = st.session_state.kpis
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
+    m2.metric("Rescatados IA", f"{kpis.get('rescatados', 0):,}")
+    m3.metric("Ahorro Caché", f"{kpis.get('cache', 0):,}")
+    m4.metric("Nuevas Reglas", f"+{kpis.get('nuevas', 0)}")
 
-        pct = st.session_state.get("progress_pct", 0.0)
-        texto = st.session_state.get("progress_text", "Iniciando...")
-        st.progress(pct, text=texto)
+    if kpis.get("errores", 0) > 0:
+        st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
 
-    if (
-        st.session_state.get("processing_active", False)
-        and not st.session_state.get("processing_done", False)
-    ):
-        st.write("") # Espaciador
-        _fragmento_progreso_rerun()
+    st.write("")
 
-    # =====================================================================
-    # SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)
-    # =====================================================================
-    if st.session_state.proceso_completado and st.session_state.df_resultado is not None:
-        st.write("") # Espaciador
-        st.divider()
-    
-        col_titulo, col_tag = st.columns([4, 1])
-        with col_titulo:
-            st.markdown("### 📥 Resultados y Descargas")
-        with col_tag:
-            st.success("✅ Proceso Finalizado")
+    total = max(kpis.get("total", 1), 1)
+    con_producto = kpis.get("con_producto", 0)
+    sin_producto = kpis.get("sin_producto", 0)
+    sin_marca = kpis.get("sin_marca", 0)
+    pendientes = kpis.get("pendientes", 0)
 
-        # KPIs al estilo Dashboard
-        kpis = st.session_state.kpis
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
-        m2.metric("Rescatados IA", f"{kpis.get('rescatados', 0):,}")
-        m3.metric("Ahorro Caché", f"{kpis.get('cache', 0):,}")
-        m4.metric("Nuevas Reglas", f"+{kpis.get('nuevas', 0)}")
-    
-        if kpis.get("errores", 0) > 0:
-            st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
+    st.markdown("#### 🎯 Cobertura del análisis")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("✅ Con producto", f"{con_producto:,}", help="Filas donde se identificó el tipo de producto (ej. UPS).")
+    c2.metric("❌ Sin producto", f"{sin_producto:,}", help="Filas donde no se pudo identificar el producto.")
+    c3.metric("🏷️ Sin marca", f"{sin_marca:,}", help="Filas con marca genérica o sin marca.")
+    c4.metric("⚠️ Pendientes", f"{pendientes:,}", help="Filas incompletas (sin producto o sin marca).")
+    st.progress(min(con_producto / total, 1.0), text=f"Identificación de producto: {con_producto / total:.1%} del total")
 
-        st.write("") # Espaciador
-
-        # ---- Cobertura del análisis (transparencia para el cliente) ----
-        total = max(kpis.get("total", 1), 1)
-        con_producto = kpis.get("con_producto", 0)
-        sin_producto = kpis.get("sin_producto", 0)
-        sin_marca = kpis.get("sin_marca", 0)
-        pendientes = kpis.get("pendientes", 0)
-
-        st.markdown("#### 🎯 Cobertura del análisis")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("✅ Con producto", f"{con_producto:,}", help="Filas donde se identificó el tipo de producto (ej. UPS).")
-        c2.metric("❌ Sin producto", f"{sin_producto:,}", help="Filas donde no se pudo identificar el producto.")
-        c3.metric("🏷️ Sin marca", f"{sin_marca:,}", help="Filas con marca genérica o sin marca.")
-        c4.metric("⚠️ Pendientes", f"{pendientes:,}", help="Filas incompletas (sin producto o sin marca).")
-        st.progress(min(con_producto / total, 1.0), text=f"Identificación de producto: {con_producto / total:.1%} del total")
-
-        # ---- Registros pendientes de revisión ----
-        df_pendientes = st.session_state.get("df_pendientes")
-        if pendientes > 0 and df_pendientes is not None and len(df_pendientes) > 0:
-            with st.expander(f"🔍 Ver los {pendientes:,} registros pendientes de revisión"):
-                st.caption("Registros donde no se identificó el producto o la marca quedó genérica. Descágalos para depurar el maestro.")
-                st.dataframe(df_pendientes.head(100), width="stretch", hide_index=True)
-                if len(df_pendientes) > 100:
-                    st.caption(f"Mostrando 100 de {len(df_pendientes):,} filas. Descarga el Excel para ver todas.")
-                sufijo_fecha = datetime.now().strftime("%Y-%m-%d")
-                if st.button(
-                    "📥 Preparar descarga de pendientes…",
-                    key="btn_preparar_pendientes",
-                    width="stretch",
-                ):
-                    with st.spinner("Generando Excel de pendientes…"):
-                        buffer_pend = BytesIO()
-                        df_pend_export = df_pendientes.drop(
-                            columns=[c for c in df_pendientes.columns if c in {"Marca_Declarada", "Tipo_Producto_Detallado"}],
-                            errors="ignore",
-                        )
-                        df_pend_export = sanitizar_dataframe_para_excel(df_pend_export)
-                        with pd.ExcelWriter(buffer_pend, engine="openpyxl") as writer:
-                            df_pend_export.to_excel(writer, index=False, sheet_name="Pendientes")
-                            try:
-                                aplicar_estilo_hoja_excel(writer.sheets["Pendientes"], df_pend_export)
-                            except Exception:
-                                pass
-                        st.session_state._pendExcel_buf = buffer_pend.getvalue()
-                if st.session_state.get("_pendExcel_buf"):
-                    st.download_button(
-                        label="📥 Descargar pendientes (Excel)",
-                        data=st.session_state._pendExcel_buf,
-                        file_name=f"Pendientes_{st.session_state.linea_producto}_{sufijo_fecha}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="btn_descarga_pendientes",
-                        width="stretch",
+    df_pendientes = st.session_state.get("df_pendientes")
+    if pendientes > 0 and df_pendientes is not None and len(df_pendientes) > 0:
+        with st.expander(f"🔍 Ver los {pendientes:,} registros pendientes de revisión"):
+            st.caption("Registros donde no se identificó el producto o la marca quedó genérica. Descágalos para depurar el maestro.")
+            st.dataframe(df_pendientes.head(100), width="stretch", hide_index=True)
+            if len(df_pendientes) > 100:
+                st.caption(f"Mostrando 100 de {len(df_pendientes):,} filas. Descarga el Excel para ver todas.")
+            sufijo_fecha = datetime.now().strftime("%Y-%m-%d")
+            if st.button(
+                "📥 Preparar descarga de pendientes…",
+                key="btn_preparar_pendientes",
+                width="stretch",
+            ):
+                with st.spinner("Generando Excel de pendientes…"):
+                    buffer_pend = BytesIO()
+                    df_pend_export = df_pendientes.drop(
+                        columns=[c for c in df_pendientes.columns if c in {"Marca_Declarada", "Tipo_Producto_Detallado"}],
+                        errors="ignore",
                     )
-
-        st.write("") # Espaciador
-    
-        # Botones de Descarga Amplios
-        d1, d2 = st.columns(2)
-        with d1:
-            if st.session_state.maestro_opt_data is not None:
+                    df_pend_export = sanitizar_dataframe_para_excel(df_pend_export)
+                    with pd.ExcelWriter(buffer_pend, engine="openpyxl") as writer:
+                        df_pend_export.to_excel(writer, index=False, sheet_name="Pendientes")
+                        try:
+                            aplicar_estilo_hoja_excel(writer.sheets["Pendientes"], df_pend_export)
+                        except Exception:
+                            pass
+                    st.session_state._pendExcel_buf = buffer_pend.getvalue()
+            if st.session_state.get("_pendExcel_buf"):
                 st.download_button(
-                    label=f"🧠 Descargar Maestro Optimizado",
-                    data=st.session_state.maestro_opt_data,
-                    file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
+                    label="📥 Descargar pendientes (Excel)",
+                    data=st.session_state._pendExcel_buf,
+                    file_name=f"Pendientes_{st.session_state.linea_producto}_{sufijo_fecha}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_descarga_pendientes",
                     width="stretch",
-                    key="btn_descarga_maestro"
                 )
-            else:
-                st.button("🧠 Maestro Optimizado (Sin aprendizajes nuevos)", disabled=True, width="stretch")
-            
-        with d2:
-            if st.session_state.df_export_data is not None:
-                st.download_button(
-                    label=f"📊 Descargar Resultado (Excel)",
-                    data=st.session_state.df_export_data,
-                    file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    width="stretch",
-                    key="btn_descarga_resultado"
-                )
-            else:
-                if st.button(
-                    "📊 Generar y descargar Resultado (Excel)",
-                    width="stretch",
-                    key="btn_gen_resultado",
-                ):
-                    with st.spinner("Generando Excel… Esto puede tardar unos segundos para archivos grandes."):
-                        st.session_state.df_export_data = _generar_excel_resultado(
-                            st.session_state.df_resultado,
-                            st.session_state.kpis,
-                            st.session_state.get("linea_producto", "Producto"),
-                            st.session_state.get("archivo_origen", ""),
-                            st.session_state.get("hoja_origen", ""),
-                            st.session_state.get("modelo_ia_usado", ""),
-                        )
-                    st.rerun()
 
-    # Vista previa con filtro de texto (solo columnas relevantes -> rápido)
-    st.write("") # Espaciador
-    st.markdown("#### 📋 Vista Previa de los Datos")
+    st.write("")
+
+    d1, d2 = st.columns(2)
+    with d1:
+        if st.session_state.maestro_opt_data is not None:
+            st.download_button(
+                label=f"🧠 Descargar Maestro Optimizado",
+                data=st.session_state.maestro_opt_data,
+                file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch",
+                key="btn_descarga_maestro",
+            )
+        else:
+            st.button("🧠 Maestro Optimizado (Sin aprendizajes nuevos)", disabled=True, width="stretch")
+
+    with d2:
+        if st.session_state.df_export_data is not None:
+            st.download_button(
+                label=f"📊 Descargar Resultado (Excel)",
+                data=st.session_state.df_export_data,
+                file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch",
+                key="btn_descarga_resultado",
+            )
+        else:
+            if st.button(
+                "📊 Generar y descargar Resultado (Excel)",
+                width="stretch",
+                key="btn_gen_resultado",
+            ):
+                with st.spinner("Generando Excel… Esto puede tardar unos segundos para archivos grandes."):
+                    st.session_state.df_export_data = _generar_excel_resultado(
+                        st.session_state.df_resultado,
+                        st.session_state.kpis,
+                        st.session_state.get("linea_producto", "Producto"),
+                        st.session_state.get("archivo_origen", ""),
+                        st.session_state.get("hoja_origen", ""),
+                        st.session_state.get("modelo_ia_usado", ""),
+                    )
+                st.rerun()
+
+st.write("")
+st.markdown("#### 📋 Vista Previa de los Datos")
+if st.session_state.df_resultado is not None:
     df_resultado = st.session_state.df_resultado
     filtro = st.text_input("🔎 Filtrar por descripción, marca o producto (texto libre)", value="")
     df_vista = df_resultado
@@ -799,7 +756,7 @@ if (
             c for c in df_resultado.columns
             if any(k in str(c).upper() for k in COLS_BUSQUEDA_FILTRO)
         ]
-        if not cols_filtro:  # archivo con nombres atípicos: usar las primeras columnas
+        if not cols_filtro:
             cols_filtro = list(df_resultado.columns[:6])
         mask = df_resultado[cols_filtro].astype(str).apply(
             lambda col: col.str.contains(filtro.strip(), case=False, na=False)
