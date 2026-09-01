@@ -651,8 +651,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
     kpis = st.session_state.kpis
     total = max(kpis.get("total", 1), 1)
     usar_ia = st.session_state.get("_usar_ia", False)
-    valor_principal = st.session_state.get("valor_principal", "")
-    var_principal_nombre = st.session_state.get("var_principal_nombre", "")
 
     # ---- Bloque 1: Resultado del proceso ----
     if usar_ia:
@@ -671,10 +669,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
     st.write("")
 
-    sin_marca = kpis.get("sin_marca", 0)
-    pendientes = kpis.get("pendientes", 0)
-
-    # ---- Bloque 2: Cobertura de clasificación y producto principal ----
+    # ---- Bloque 2: Cobertura de clasificación y marcas identificadas ----
     con_producto = kpis.get("con_producto", 0)
     pct_con_producto = con_producto / total
 
@@ -686,39 +681,20 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         text=f"Identificación de producto: {con_producto:,} de {total:,} filas ({pct_con_producto:.1%})",
     )
 
-    # Detalle del producto principal (solo si está definido en 0b_Config_Linea)
-    if valor_principal:
-        # Contamos las filas que SÍ son el producto principal de la línea
-        df_res = st.session_state.df_resultado
-        if "Es_Producto_Principal" in df_res.columns:
-            n_principal = int(df_res["Es_Producto_Principal"].fillna(False).astype(bool).sum())
-        else:
-            n_principal = kpis.get("con_producto", 0)
-        pct_principal = n_principal / total
+    # Marcas identificadas: número de marcas distintas reales (excluye genéricas/sin marca)
+    df_res = st.session_state.df_resultado
+    if "Marca_Extraida" in df_res.columns:
+        marcas_unicas = df_res["Marca_Extraida"].dropna().astype(str).str.strip().str.upper()
+        marcas_reales = marcas_unicas[~marcas_unicas.isin(VALORES_MARCA_SIN_RESOLVER)]
+        n_marcas_identificadas = marcas_reales.nunique()
+    else:
+        n_marcas_identificadas = 0
 
-        st.markdown(f"#### 🎯 Producto principal: **{valor_principal}**")
-        st.caption(
-            f"Se refiere a la variable **{var_principal_nombre}** definida en "
-            f"`0b_Config_Linea`. Muestra cuántas filas se identificaron como "
-            f"**{valor_principal}**."
-        )
-        c1, c2 = st.columns(2)
-        c1.metric(
-            f"✅ Identificados como {valor_principal}",
-            f"{n_principal:,}",
-            help=f"Filas donde el motor detectó que el producto es {valor_principal}.",
-        )
-        c2.metric(
-            "Cobertura",
-            f"{pct_principal:.1%}",
-            help=f"Porcentaje del total de filas identificadas como {valor_principal}.",
-        )
-        st.progress(min(pct_principal, 1.0), text=f"{n_principal:,} de {total:,} filas identificadas como {valor_principal} ({pct_principal:.1%})")
-
-    # ---- Bloque 3: Calidad (sin marca y pendientes) ----
-    c3, c4 = st.columns(2)
-    c3.metric("🏷️ Sin marca", f"{sin_marca:,}", help="Filas con marca genérica o sin marca.")
-    c4.metric("⚠️ Pendientes", f"{pendientes:,}", help="Filas incompletas (sin producto o sin marca).")
+    st.metric(
+        "🏷️ Marcas distintas identificadas",
+        f"{n_marcas_identificadas:,}",
+        help="Número de marcas únicas detectadas (excluye S/M, genéricas, etc.).",
+    )
 
     st.write("")
 
