@@ -757,6 +757,26 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
     st.write("")
 
+    # ---- Bloque 4: Top marcas detectadas ----
+    if "Marca_Extraida" in df_res.columns:
+        top_marcas = (
+            marcas_unicas[mask_marca_real]
+            .value_counts()
+            .head(8)
+            .sort_values(ascending=True)
+        )
+        if len(top_marcas) > 0:
+            st.markdown("#### 🏆 Top marcas detectadas")
+            st.caption("Las marcas reales más frecuentes en el archivo (excluye genéricas y sin marca).")
+            st.bar_chart(
+                top_marcas,
+                horizontal=True,
+                height=280,
+                color="#4C9AFF",
+            )
+
+    st.write("")
+
     d1, d2 = st.columns(2)
     with d1:
         if st.session_state.maestro_opt_data is not None:
@@ -774,7 +794,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
     with d2:
         if st.session_state.df_export_data is not None:
             st.download_button(
-                label=f"📊 Descargar Resultado (Excel)",
+                label=f"� Descargar Resultado (Excel)",
                 data=st.session_state.df_export_data,
                 file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -783,7 +803,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             )
         else:
             if st.button(
-                "📊 Generar y descargar Resultado (Excel)",
+                "⚙️ Preparar Excel para descargar",
                 width="stretch",
                 key="btn_gen_resultado",
             ):
