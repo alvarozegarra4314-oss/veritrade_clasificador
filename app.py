@@ -755,6 +755,22 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         help=f"{n_con_marca_y_3caract:,} de {total:,} filas tienen marca real y al menos 3 características no numéricas.",
     )
 
+    # Tarjeta extra: característica no numérica con más coincidencias
+    if cols_caract:
+        conteos_caract = df_res[cols_caract].notna().sum().sort_values(ascending=False)
+        top_caract_nombre = str(conteos_caract.index[0])
+        top_caract_valor = int(conteos_caract.iloc[0])
+    else:
+        top_caract_nombre = "—"
+        top_caract_valor = 0
+    top_caract_pct = top_caract_valor / total
+
+    st.metric(
+        "⭐ Característica con más coincidencias",
+        f"{top_caract_nombre} ({top_caract_pct:.1%})",
+        help=f"{top_caract_valor:,} de {total:,} filas tienen esta característica no numérica identificada.",
+    )
+
     st.write("")
 
     # ---- Bloque 4: Top marcas detectadas ----
