@@ -775,15 +775,30 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
     # ---- Bloque 4: Top marcas detectadas ----
     if "Marca_Extraida" in df_res.columns:
-        top_marcas = (
-            marcas_unicas[mask_marca_real]
-            .value_counts()
-            .head(8)
-            .sort_values(ascending=False)
-        )
+        # Si existe la columna Qty2, el top se ordena por SUMA de cantidad
+        # (peso real de cada marca); si no, se usa el conteo de filas.
+        usar_qty2 = "Qty2" in df_res.columns
+        if usar_qty2:
+            top_marcas = (
+                df_res.loc[mask_marca_real, ["Marca_Extraida", "Qty2"]]
+                .groupby("Marca_Extraida")["Qty2"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(8)
+            )
+        else:
+            top_marcas = (
+                marcas_unicas[mask_marca_real]
+                .value_counts()
+                .head(8)
+                .sort_values(ascending=False)
+            )
         if len(top_marcas) > 0:
             st.markdown("#### 🏆 Top marcas detectadas")
-            st.caption("Las marcas reales más frecuentes en el archivo (excluye genéricas y sin marca).")
+            if usar_qty2:
+                st.caption("Marcas reales ordenadas por suma de Qty2 (excluye genéricas y sin marca).")
+            else:
+                st.caption("Las marcas reales más frecuentes en el archivo (excluye genéricas y sin marca).")
             import altair as alt
 
             df_top = top_marcas.reset_index()
@@ -792,7 +807,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                 alt.Chart(df_top)
                 .mark_bar(color="#4C9AFF")
                 .encode(
-                    x=alt.X("Cantidad:Q", title="Filas"),
+                    x=alt.X("Cantidad:Q", title="Qty2" if usar_qty2 else "Filas"),
                     y=alt.Y(
                         "Marca:N",
                         sort="-x",
