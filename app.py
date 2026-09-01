@@ -392,6 +392,7 @@ def _generar_excel_resultado(df_resultado, kpis, linea, archivo_origen, hoja_ori
     _columnas_auxiliares_no_exportar = {
         "Marca_Declarada", "Tipo_Producto_Detallado",
         "Producto_Texto_Desc1", "Modelo_Serie_Desc1",
+        "Rescatado_Por_IA",
     }
     _df_export = df_resultado.drop(
         columns=[c for c in df_resultado.columns if c in _columnas_auxiliares_no_exportar],
@@ -556,7 +557,7 @@ if procesar:
                 _kpis["pendientes"] = int(_pend_mask.sum())
 
                 if _rescatador is not None:
-                    _kpis["rescatados"] = int(_df_resultado["Rescatado_Por_IA"].sum()) if "Rescatado_Por_IA" in _df_resultado else 0
+                    _kpis["rescatados"] = _rescatador.descripciones_rescatadas_api
                     _kpis["cache"] = _rescatador.llamadas_desde_cache
                     _kpis["errores"] = _rescatador.errores
 
@@ -687,6 +688,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                         columns=[c for c in df_pendientes.columns if c in {
                             "Marca_Declarada", "Tipo_Producto_Detallado",
                             "Producto_Texto_Desc1", "Modelo_Serie_Desc1",
+                            "Rescatado_Por_IA",
                         }],
                         errors="ignore",
                     )

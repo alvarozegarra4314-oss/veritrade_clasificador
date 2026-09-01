@@ -241,7 +241,8 @@ def procesar_dataframe_dinamico(
     # internamente): son recortes literales de la descripción original que
     # solo sirven de apoyo interno, no aportan valor al Excel de salida.
     columnas_ocultas = ["_desc_clean_ia", "Marca_Declarada",
-                        "Producto_Texto_Desc1", "Modelo_Serie_Desc1"]
+                        "Producto_Texto_Desc1", "Modelo_Serie_Desc1",
+                        "Rescatado_Por_IA"]
 
     # Columnas que dependen de la variable principal (definida en 0b_Config_Linea).
     # Solo se muestran si el usuario definió un VALOR_PRODUCTO_PRINCIPAL; si lo
