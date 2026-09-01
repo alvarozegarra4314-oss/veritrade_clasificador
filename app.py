@@ -139,12 +139,6 @@ VALORES_MARCA_SIN_RESOLVER = {
     "S/M", "SIN MARCA", "GENERICO", "NO APLICA",
 }
 
-# El filtro de texto solo escanea columnas relevantes (descripciones, marcas,
-# producto/modelo) en vez de TODAS las columnas del archivo: pasa de segundos
-# por tecla a milisegundos en archivos grandes.
-COLS_BUSQUEDA_FILTRO = ("DESCRIPCION", "MARCA", "PRODUCTO", "MODELO", "SERIE")
-FILAS_VISTA_PREVIA = 200
-
 
 @st.cache_data(show_spinner=False)
 def _listar_hojas_y_filas(bytes_raw: bytes):
@@ -726,47 +720,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
     c3.metric("🏷️ Sin marca", f"{sin_marca:,}", help="Filas con marca genérica o sin marca.")
     c4.metric("⚠️ Pendientes", f"{pendientes:,}", help="Filas incompletas (sin producto o sin marca).")
 
-    df_pendientes = st.session_state.get("df_pendientes")
-    if pendientes > 0 and df_pendientes is not None and len(df_pendientes) > 0:
-        with st.expander(f"🔍 Ver los {pendientes:,} registros pendientes de revisión"):
-            st.caption("Registros donde no se identificó el producto o la marca quedó genérica. Descágalos para depurar el maestro.")
-            st.dataframe(df_pendientes.head(100), width="stretch", hide_index=True)
-            if len(df_pendientes) > 100:
-                st.caption(f"Mostrando 100 de {len(df_pendientes):,} filas. Descarga el Excel para ver todas.")
-            sufijo_fecha = datetime.now().strftime("%Y-%m-%d")
-            if st.button(
-                "📥 Preparar descarga de pendientes…",
-                key="btn_preparar_pendientes",
-                width="stretch",
-            ):
-                with st.spinner("Generando Excel de pendientes…"):
-                    buffer_pend = BytesIO()
-                    df_pend_export = df_pendientes.drop(
-                        columns=[c for c in df_pendientes.columns if c in {
-                            "Marca_Declarada", "Tipo_Producto_Detallado",
-                            "Producto_Texto_Desc1", "Modelo_Serie_Desc1",
-                            "Rescatado_Por_IA",
-                        }],
-                        errors="ignore",
-                    )
-                    df_pend_export = sanitizar_dataframe_para_excel(df_pend_export)
-                    with pd.ExcelWriter(buffer_pend, engine="openpyxl") as writer:
-                        df_pend_export.to_excel(writer, index=False, sheet_name="Pendientes")
-                        try:
-                            aplicar_estilo_hoja_excel(writer.sheets["Pendientes"], df_pend_export)
-                        except Exception:
-                            pass
-                    st.session_state._pendExcel_buf = buffer_pend.getvalue()
-            if st.session_state.get("_pendExcel_buf"):
-                st.download_button(
-                    label="📥 Descargar pendientes (Excel)",
-                    data=st.session_state._pendExcel_buf,
-                    file_name=f"Pendientes_{st.session_state.linea_producto}_{sufijo_fecha}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_descarga_pendientes",
-                    width="stretch",
-                )
-
     st.write("")
 
     d1, d2 = st.columns(2)
@@ -809,30 +762,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                         st.session_state.get("modelo_ia_usado", ""),
                     )
                 st.rerun()
-
-st.write("")
-st.markdown("#### 📋 Vista Previa de los Datos")
-if st.session_state.df_resultado is not None:
-    df_resultado = st.session_state.df_resultado
-    filtro = st.text_input("🔎 Filtrar por descripción, marca o producto (texto libre)", value="")
-    df_vista = df_resultado
-    if filtro.strip():
-        cols_filtro = [
-            c for c in df_resultado.columns
-            if any(k in str(c).upper() for k in COLS_BUSQUEDA_FILTRO)
-        ]
-        if not cols_filtro:
-            cols_filtro = list(df_resultado.columns[:6])
-        mask = df_resultado[cols_filtro].astype(str).apply(
-            lambda col: col.str.contains(filtro.strip(), case=False, na=False)
-        ).any(axis=1)
-        df_vista = df_resultado[mask]
-    n_mostradas = min(len(df_vista), FILAS_VISTA_PREVIA)
-    st.caption(
-        f"Mostrando {n_mostradas:,} de {len(df_vista):,} filas coincidentes "
-        f"(total del archivo: {len(df_resultado):,})"
-    )
-    st.dataframe(df_vista.head(FILAS_VISTA_PREVIA), width="stretch", hide_index=True)
 
 # =====================================================================
 # SECCIÓN 5: CREAR MAESTRO (DENTRO DEL TAB CREAR)
