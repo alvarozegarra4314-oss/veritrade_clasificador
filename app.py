@@ -763,17 +763,36 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             marcas_unicas[mask_marca_real]
             .value_counts()
             .head(8)
-            .sort_values(ascending=True)
+            .sort_values(ascending=False)
         )
         if len(top_marcas) > 0:
             st.markdown("#### 🏆 Top marcas detectadas")
             st.caption("Las marcas reales más frecuentes en el archivo (excluye genéricas y sin marca).")
-            st.bar_chart(
-                top_marcas,
-                horizontal=True,
-                height=280,
-                color="#4C9AFF",
+            import altair as alt
+
+            df_top = top_marcas.reset_index()
+            df_top.columns = ["Marca", "Cantidad"]
+            chart = (
+                alt.Chart(df_top)
+                .mark_bar(color="#4C9AFF")
+                .encode(
+                    x=alt.X("Cantidad:Q", title="Filas"),
+                    y=alt.Y(
+                        "Marca:N",
+                        sort="-x",
+                        title=None,
+                        axis=alt.Axis(labelLimit=200),
+                    ),
+                    tooltip=["Marca:N", "Cantidad:Q"],
+                )
             )
+            text = chart.mark_text(
+                align="left",
+                dx=4,
+                color="#333333",
+                fontSize=12,
+            ).encode(text="Cantidad:Q")
+            st.altair_chart((chart + text).properties(height=280), use_container_width=True)
 
     st.write("")
 
