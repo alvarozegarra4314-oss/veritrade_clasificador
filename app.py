@@ -81,6 +81,10 @@ if "hoja_origen" not in st.session_state:
     st.session_state.hoja_origen = ""
 if "modelo_ia_usado" not in st.session_state:
     st.session_state.modelo_ia_usado = ""
+if "var_principal_nombre" not in st.session_state:
+    st.session_state.var_principal_nombre = ""
+if "valor_principal" not in st.session_state:
+    st.session_state.valor_principal = ""
 
 # Forzar uso del modelo actual de config (evita que sesiones viejas usen modelos obsoletos)
 if "_modelo_ia_forzado" not in st.session_state:
@@ -319,6 +323,10 @@ with tab_clasificar:
                     linea_detectada = maestro_info.config_linea.get("LINEA_PRODUCTO", "Producto")
                     n_cond = len(getattr(maestro_info, "condicionales", []))
                     st.session_state.linea_detectada = linea_detectada
+                    # Guardamos la variable principal y su valor para poder
+                    # mostrarlos con nombre real en los KPIs de resultados.
+                    st.session_state.var_principal_nombre = maestro_info.variable_producto_principal
+                    st.session_state.valor_principal = maestro_info.valor_producto_principal
                     st.success(f"✅ **Maestro:** {maestro_nombre} | **Línea:** {linea_detectada} | **Reglas activas:** {n_cond}")
                 except Exception as e:
                     st.warning(f"Error al leer el maestro: {e}")
@@ -644,30 +652,67 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         st.success("✅ Proceso Finalizado")
 
     kpis = st.session_state.kpis
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
-    m2.metric("Rescatados IA", f"{kpis.get('rescatados', 0):,}")
-    m3.metric("Ahorro Caché", f"{kpis.get('cache', 0):,}")
-    m4.metric("Nuevas Reglas", f"+{kpis.get('nuevas', 0)}")
+    total = max(kpis.get("total", 1), 1)
+    usar_ia = "IA" in st.session_state.get("modelo_ia_usado", "")
+    valor_principal = st.session_state.get("valor_principal", "")
+    var_principal_nombre = st.session_state.get("var_principal_nombre", "")
+
+    # ---- Bloque 1: Resultado del proceso ----
+    if usar_ia:
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
+        m2.metric("Rescatados IA", f"{kpis.get('rescatados', 0):,}")
+        m3.metric("Ahorro Caché", f"{kpis.get('cache', 0):,}")
+        m4.metric("Nuevas Reglas", f"+{kpis.get('nuevas', 0)}")
+    else:
+        m1, m2 = st.columns(2)
+        m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
+        m2.metric("Motor", "Reglas deterministas")
 
     if kpis.get("errores", 0) > 0:
         st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
 
     st.write("")
 
-    total = max(kpis.get("total", 1), 1)
-    con_producto = kpis.get("con_producto", 0)
-    sin_producto = kpis.get("sin_producto", 0)
     sin_marca = kpis.get("sin_marca", 0)
     pendientes = kpis.get("pendientes", 0)
 
-    st.markdown("#### 🎯 Cobertura del análisis")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("✅ Con producto", f"{con_producto:,}", help="Filas donde se identificó el tipo de producto (ej. UPS).")
-    c2.metric("❌ Sin producto", f"{sin_producto:,}", help="Filas donde no se pudo identificar el producto.")
+    # ---- Bloque 2: Producto principal (solo si está definido en 0b_Config_Linea) ----
+    if valor_principal:
+        # Contamos las filas que SÍ son el producto principal de la línea
+        df_res = st.session_state.df_resultado
+        if "Es_Producto_Principal" in df_res.columns:
+            n_principal = int(df_res["Es_Producto_Principal"].fillna(False).astype(bool).sum())
+        else:
+            n_principal = kpis.get("con_producto", 0)
+        pct_principal = n_principal / total
+
+        st.markdown(f"#### 🎯 Producto principal: **{valor_principal}**")
+        st.caption(
+            f"Se refiere a la variable **{var_principal_nombre}** definida en "
+            f"`0b_Config_Linea`. Muestra cuántas filas se identificaron como "
+            f"**{valor_principal}**."
+        )
+        c1, c2 = st.columns(2)
+        c1.metric(
+            f"✅ Identificados como {valor_principal}",
+            f"{n_principal:,}",
+            help=f"Filas donde el motor detectó que el producto es {valor_principal}.",
+        )
+        c2.metric(
+            "Cobertura",
+            f"{pct_principal:.1%}",
+            help=f"Porcentaje del total de filas identificadas como {valor_principal}.",
+        )
+        st.progress(min(pct_principal, 1.0), text=f"{n_principal:,} de {total:,} filas identificadas como {valor_principal} ({pct_principal:.1%})")
+    else:
+        st.markdown("#### 🎯 Calidad de la clasificación")
+        st.caption("No se definió un producto principal en `0b_Config_Linea`, así que no se muestra la cobertura por producto.")
+
+    # ---- Bloque 3: Calidad (sin marca y pendientes) ----
+    c3, c4 = st.columns(2)
     c3.metric("🏷️ Sin marca", f"{sin_marca:,}", help="Filas con marca genérica o sin marca.")
     c4.metric("⚠️ Pendientes", f"{pendientes:,}", help="Filas incompletas (sin producto o sin marca).")
-    st.progress(min(con_producto / total, 1.0), text=f"Identificación de producto: {con_producto / total:.1%} del total")
 
     df_pendientes = st.session_state.get("df_pendientes")
     if pendientes > 0 and df_pendientes is not None and len(df_pendientes) > 0:
