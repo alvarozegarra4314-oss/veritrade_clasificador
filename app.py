@@ -771,6 +771,23 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         help=f"{top_caract_valor:,} de {total:,} filas tienen esta característica no numérica identificada.",
     )
 
+    # Desglose: % de coincidencia de TODAS las características no numéricas
+    if cols_caract:
+        st.markdown("#### 📋 Coincidencia por característica")
+        st.caption("Porcentaje de filas donde cada característica no numérica fue identificada.")
+        conteos_caract = df_res[cols_caract].notna().sum().sort_values(ascending=False)
+        df_caract = pd.DataFrame({
+            "Característica": conteos_caract.index,
+            "Filas identificadas": conteos_caract.values,
+            "% de coincidencia": (conteos_caract.values / total * 100).round(1),
+        })
+        df_caract["% de coincidencia"] = df_caract["% de coincidencia"].astype(str) + "%"
+        st.dataframe(
+            df_caract.reset_index(drop=True),
+            use_container_width=True,
+            hide_index=True,
+        )
+
     st.write("")
 
     # ---- Bloque 4: Top marcas detectadas ----
