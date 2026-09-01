@@ -775,13 +775,14 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
     # ---- Bloque 4: Top marcas detectadas ----
     if "Marca_Extraida" in df_res.columns:
-        # Si existe la columna Qty2, el top se ordena por SUMA de cantidad
-        # (peso real de cada marca); si no, se usa el conteo de filas.
-        usar_qty2 = "Qty2" in df_res.columns
+        # Si existe la columna de cantidad (Qty 2 / Qty2), el top se ordena por
+        # SUMA de cantidad (peso real de cada marca); si no, se usa el conteo.
+        col_qty = next((c for c in ("Qty 2", "Qty2") if c in df_res.columns), None)
+        usar_qty2 = col_qty is not None
         if usar_qty2:
             top_marcas = (
-                df_res.loc[mask_marca_real, ["Marca_Extraida", "Qty2"]]
-                .groupby("Marca_Extraida")["Qty2"]
+                df_res.loc[mask_marca_real, ["Marca_Extraida", col_qty]]
+                .groupby("Marca_Extraida")[col_qty]
                 .sum()
                 .sort_values(ascending=False)
                 .head(8)
@@ -796,7 +797,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         if len(top_marcas) > 0:
             st.markdown("#### 🏆 Top marcas detectadas")
             if usar_qty2:
-                st.caption("Marcas reales ordenadas por suma de Qty2 (excluye genéricas y sin marca).")
+                st.caption(f"Marcas reales ordenadas por suma de {col_qty} (excluye genéricas y sin marca).")
             else:
                 st.caption("Las marcas reales más frecuentes en el archivo (excluye genéricas y sin marca).")
             import altair as alt
@@ -807,7 +808,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                 alt.Chart(df_top)
                 .mark_bar(color="#4C9AFF")
                 .encode(
-                    x=alt.X("Cantidad:Q", title="Qty2" if usar_qty2 else "Filas"),
+                    x=alt.X("Cantidad:Q", title=col_qty if usar_qty2 else "Filas"),
                     y=alt.Y(
                         "Marca:N",
                         sort="-x",
