@@ -702,25 +702,10 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         n_filas_marca_real = 0
         n_marcas_identificadas = 0
 
-    st.metric(
-        "🏷️ Marcas distintas identificadas",
-        f"{n_marcas_identificadas:,}",
-        help="Número de marcas únicas detectadas (excluye S/M, genéricas, etc.).",
-    )
-
-    # ---- Bloque 3: KPIs de marca real y características no numéricas ----
-    # KPI 1: % de filas con marca real (no genérica ni marca de componentes)
-    pct_marca_real = n_filas_marca_real / total
-    st.markdown("#### 🏷️ Marcas reales identificadas")
-    st.caption("Porcentaje de filas donde se identificó una marca real (excluye genéricas, S/M y marca de componentes).")
-    st.progress(
-        min(pct_marca_real, 1.0),
-        text=f"Con marca real: {n_filas_marca_real:,} de {total:,} filas ({pct_marca_real:.1%})",
-    )
-
-    # KPI 2: % de filas con marca real Y al menos una característica no numérica
-    # (variables categóricas del maestro: tipo de tecnología, fases, etc. —
-    #  se excluyen las numéricas como amperaje, voltaje, kVA).
+    # ---- Bloque 3: Tarjetas de marca y características no numéricas ----
+    # Características no numéricas = variables categóricas del maestro
+    # (tipo de tecnología, fases, etc. — se excluyen las numéricas como
+    # amperaje, voltaje, kVA).
     vars_cat = st.session_state.get("variables_categoricas", [])
     var_principal = st.session_state.get("var_principal_nombre", "")
     cols_caract = [c for c in vars_cat if c != var_principal and c in df_res.columns]
@@ -728,17 +713,46 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         cols_caract = [c for c in vars_cat if c in df_res.columns]
 
     if cols_caract:
-        mask_caract = df_res[cols_caract].notna().any(axis=1)
-        n_con_marca_y_caract = int((mask_marca_real & mask_caract).sum())
+        n_caract_por_fila = df_res[cols_caract].notna().sum(axis=1)
+        n_con_marca_y_caract = int((mask_marca_real & (n_caract_por_fila >= 1)).sum())
+        n_con_marca_y_2caract = int((mask_marca_real & (n_caract_por_fila >= 2)).sum())
+        n_con_marca_y_3caract = int((mask_marca_real & (n_caract_por_fila >= 3)).sum())
     else:
         n_con_marca_y_caract = 0
-    pct_con_marca_y_caract = n_con_marca_y_caract / total
+        n_con_marca_y_2caract = 0
+        n_con_marca_y_3caract = 0
 
-    st.markdown("#### 🔍 Marca + característica no numérica")
-    st.caption("Filas con marca real Y al menos una característica descriptiva identificada (tipo de tecnología, fases, etc. — no numéricas como amperaje).")
-    st.progress(
-        min(pct_con_marca_y_caract, 1.0),
-        text=f"Con marca y característica: {n_con_marca_y_caract:,} de {total:,} filas ({pct_con_marca_y_caract:.1%})",
+    pct_marca_real = n_filas_marca_real / total
+    pct_con_marca_y_caract = n_con_marca_y_caract / total
+    pct_con_marca_y_2caract = n_con_marca_y_2caract / total
+    pct_con_marca_y_3caract = n_con_marca_y_3caract / total
+
+    st.markdown("#### 🏷️ Marcas y características identificadas")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric(
+        "🏷️ Marcas distintas",
+        f"{n_marcas_identificadas:,}",
+        help="Número de marcas únicas detectadas (excluye S/M, genéricas, etc.).",
+    )
+    c2.metric(
+        "✅ % con marca real",
+        f"{pct_marca_real:.1%}",
+        help=f"{n_filas_marca_real:,} de {total:,} filas tienen una marca real (excluye genéricas, S/M y marca de componentes).",
+    )
+    c3.metric(
+        "🔍 Marca + 1 característica",
+        f"{pct_con_marca_y_caract:.1%}",
+        help=f"{n_con_marca_y_caract:,} de {total:,} filas tienen marca real y al menos 1 característica no numérica.",
+    )
+    c4.metric(
+        "🔍 Marca + 2 características",
+        f"{pct_con_marca_y_2caract:.1%}",
+        help=f"{n_con_marca_y_2caract:,} de {total:,} filas tienen marca real y al menos 2 características no numéricas.",
+    )
+    c5.metric(
+        "🔍 Marca + 3 características",
+        f"{pct_con_marca_y_3caract:.1%}",
+        help=f"{n_con_marca_y_3caract:,} de {total:,} filas tienen marca real y al menos 3 características no numéricas.",
     )
 
     st.write("")
