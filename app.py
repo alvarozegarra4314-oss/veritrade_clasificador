@@ -81,6 +81,8 @@ if "hoja_origen" not in st.session_state:
     st.session_state.hoja_origen = ""
 if "modelo_ia_usado" not in st.session_state:
     st.session_state.modelo_ia_usado = ""
+if "_usar_ia" not in st.session_state:
+    st.session_state._usar_ia = False
 if "var_principal_nombre" not in st.session_state:
     st.session_state.var_principal_nombre = ""
 if "valor_principal" not in st.session_state:
@@ -469,6 +471,7 @@ if procesar:
         st.session_state.linea_producto = linea
         st.session_state.archivo_origen = archivo_raw.name
         st.session_state.hoja_origen = hoja_raw
+        st.session_state._usar_ia = bool(usar_ia)
         st.session_state.modelo_ia_usado = (
             f"Reglas + IA ({modelo_ia})" if usar_ia else "Reglas deterministas (sin IA)"
         )
@@ -653,7 +656,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
     kpis = st.session_state.kpis
     total = max(kpis.get("total", 1), 1)
-    usar_ia = "IA" in st.session_state.get("modelo_ia_usado", "")
+    usar_ia = st.session_state.get("_usar_ia", False)
     valor_principal = st.session_state.get("valor_principal", "")
     var_principal_nombre = st.session_state.get("var_principal_nombre", "")
 
@@ -677,7 +680,19 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
     sin_marca = kpis.get("sin_marca", 0)
     pendientes = kpis.get("pendientes", 0)
 
-    # ---- Bloque 2: Producto principal (solo si está definido en 0b_Config_Linea) ----
+    # ---- Bloque 2: Cobertura de clasificación y producto principal ----
+    con_producto = kpis.get("con_producto", 0)
+    pct_con_producto = con_producto / total
+
+    # Barra de cobertura general: % de filas donde se identificó ALGÚN tipo de producto
+    st.markdown("#### 🎯 Cobertura de clasificación")
+    st.caption("Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.).")
+    st.progress(
+        min(pct_con_producto, 1.0),
+        text=f"Identificación de producto: {con_producto:,} de {total:,} filas ({pct_con_producto:.1%})",
+    )
+
+    # Detalle del producto principal (solo si está definido en 0b_Config_Linea)
     if valor_principal:
         # Contamos las filas que SÍ son el producto principal de la línea
         df_res = st.session_state.df_resultado
@@ -705,9 +720,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             help=f"Porcentaje del total de filas identificadas como {valor_principal}.",
         )
         st.progress(min(pct_principal, 1.0), text=f"{n_principal:,} de {total:,} filas identificadas como {valor_principal} ({pct_principal:.1%})")
-    else:
-        st.markdown("#### 🎯 Calidad de la clasificación")
-        st.caption("No se definió un producto principal en `0b_Config_Linea`, así que no se muestra la cobertura por producto.")
 
     # ---- Bloque 3: Calidad (sin marca y pendientes) ----
     c3, c4 = st.columns(2)
