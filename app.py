@@ -87,6 +87,10 @@ if "var_principal_nombre" not in st.session_state:
     st.session_state.var_principal_nombre = ""
 if "valor_principal" not in st.session_state:
     st.session_state.valor_principal = ""
+if "variables_categoricas" not in st.session_state:
+    st.session_state.variables_categoricas = []
+if "variables_potencia" not in st.session_state:
+    st.session_state.variables_potencia = []
 
 # Forzar uso del modelo actual de config (evita que sesiones viejas usen modelos obsoletos)
 if "_modelo_ia_forzado" not in st.session_state:
@@ -323,6 +327,11 @@ with tab_clasificar:
                     # mostrarlos con nombre real en los KPIs de resultados.
                     st.session_state.var_principal_nombre = maestro_info.variable_producto_principal
                     st.session_state.valor_principal = maestro_info.valor_producto_principal
+                    # Guardamos las variables categóricas (características no numéricas)
+                    # y las de potencia (numéricas) para poder calcular KPIs de
+                    # "característica identificada" en los resultados.
+                    st.session_state.variables_categoricas = list(getattr(maestro_info, "variables_categoricas", []))
+                    st.session_state.variables_potencia = list(getattr(maestro_info, "variables_potencia", []))
                     st.success(f"✅ **Maestro:** {maestro_nombre} | **Línea:** {linea_detectada} | **Reglas activas:** {n_cond}")
                 except Exception as e:
                     st.warning(f"Error al leer el maestro: {e}")
@@ -685,15 +694,51 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
     df_res = st.session_state.df_resultado
     if "Marca_Extraida" in df_res.columns:
         marcas_unicas = df_res["Marca_Extraida"].dropna().astype(str).str.strip().str.upper()
-        marcas_reales = marcas_unicas[~marcas_unicas.isin(VALORES_MARCA_SIN_RESOLVER)]
-        n_marcas_identificadas = marcas_reales.nunique()
+        mask_marca_real = ~marcas_unicas.isin(VALORES_MARCA_SIN_RESOLVER)
+        n_filas_marca_real = int(mask_marca_real.sum())
+        n_marcas_identificadas = int(marcas_unicas[mask_marca_real].nunique())
     else:
+        mask_marca_real = pd.Series(False, index=df_res.index)
+        n_filas_marca_real = 0
         n_marcas_identificadas = 0
 
     st.metric(
         "🏷️ Marcas distintas identificadas",
         f"{n_marcas_identificadas:,}",
         help="Número de marcas únicas detectadas (excluye S/M, genéricas, etc.).",
+    )
+
+    # ---- Bloque 3: KPIs de marca real y características no numéricas ----
+    # KPI 1: % de filas con marca real (no genérica ni marca de componentes)
+    pct_marca_real = n_filas_marca_real / total
+    st.markdown("#### 🏷️ Marcas reales identificadas")
+    st.caption("Porcentaje de filas donde se identificó una marca real (excluye genéricas, S/M y marca de componentes).")
+    st.progress(
+        min(pct_marca_real, 1.0),
+        text=f"Con marca real: {n_filas_marca_real:,} de {total:,} filas ({pct_marca_real:.1%})",
+    )
+
+    # KPI 2: % de filas con marca real Y al menos una característica no numérica
+    # (variables categóricas del maestro: tipo de tecnología, fases, etc. —
+    #  se excluyen las numéricas como amperaje, voltaje, kVA).
+    vars_cat = st.session_state.get("variables_categoricas", [])
+    var_principal = st.session_state.get("var_principal_nombre", "")
+    cols_caract = [c for c in vars_cat if c != var_principal and c in df_res.columns]
+    if not cols_caract:
+        cols_caract = [c for c in vars_cat if c in df_res.columns]
+
+    if cols_caract:
+        mask_caract = df_res[cols_caract].notna().any(axis=1)
+        n_con_marca_y_caract = int((mask_marca_real & mask_caract).sum())
+    else:
+        n_con_marca_y_caract = 0
+    pct_con_marca_y_caract = n_con_marca_y_caract / total
+
+    st.markdown("#### 🔍 Marca + característica no numérica")
+    st.caption("Filas con marca real Y al menos una característica descriptiva identificada (tipo de tecnología, fases, etc. — no numéricas como amperaje).")
+    st.progress(
+        min(pct_con_marca_y_caract, 1.0),
+        text=f"Con marca y característica: {n_con_marca_y_caract:,} de {total:,} filas ({pct_con_marca_y_caract:.1%})",
     )
 
     st.write("")
