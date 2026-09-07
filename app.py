@@ -224,13 +224,16 @@ def _mensaje_columnas_no_reconocidas(columnas) -> str:
 # ENCABEZADO
 # =====================================================================
 st.title("🗂️ Clasificador de Importaciones — Veritrade")
-st.markdown("Sube tu archivo de importaciones y obtén la clasificación por producto y marca. **No necesitas saber de reglas:** la herramienta aplica el maestro de la línea automáticamente y, si activas la IA, rescata lo que no logra resolver.")
+st.markdown("Sube tu archivo de importaciones y obtén la clasificación por producto y marca. **No necesitas saber de reglas:** la herramienta aplica el maestro de la línea automáticamente.")
 st.write("") # Espaciador
 
 # =====================================================================
 # TABS PRINCIPALES
 # =====================================================================
-tab_clasificar, tab_crear = st.tabs(["📊 Clasificar Importaciones", "🔧 Crear Maestro"])
+# La pestaña "Crear Maestro" está OCULTA temporalmente (no se elimina).
+# Para reactivarla: vuelve a agregar "🔧 Crear Maestro" a la lista y
+# cambia "if False" por "with tab_crear" en la SECCIÓN 5.
+tab_clasificar = st.tabs(["📊 Clasificar Importaciones"])[0]
 
 with tab_clasificar:
     # =====================================================================
@@ -339,64 +342,73 @@ with tab_clasificar:
                 st.info("📥 Sube tu maestro propio para habilitar el análisis.")
 
     # =====================================================================
-    # SECCIÓN 2: CONFIGURACIÓN DE IA
+    # SECCIÓN 2: CONFIGURACIÓN DE IA (OCULTA — se usa solo el modo reglas)
     # =====================================================================
-    st.write("") # Espaciador
-    with st.container(border=True):
-        st.markdown("### 🤖 Rescate por IA Generativa")
-        st.caption("Delega a Gemini el análisis de las descripciones que el motor de reglas no logre resolver. *(Opcional pero recomendado)*.")
-    
-        if not GENAI_DISPONIBLE:
-            st.error("⚠️ El paquete 'google-genai' no está instalado. Instálalo con: pip install google-genai")
-            usar_ia = False
-            api_key = ""
-            modelo_ia = config.MODELO_IA_DEFAULT
-            rpm_limite = 12
-        else:
-            usar_ia = st.toggle(
-                f"Activar motor de rescate por IA (Gemini · {config.MODELO_IA_DEFAULT})",
-                value=False,
-            )
+    # La UI de IA está OCULTA temporalmente (no se elimina). El motor corre
+    # siempre en modo determinista (sin IA). Para reactivar: cambia "if False"
+    # por "if True" en el bloque de abajo.
+    usar_ia = False
+    api_key = ""
+    modelo_ia = config.MODELO_IA_DEFAULT
+    rpm_limite = 12
 
-            api_key = None
-            modelo_ia = config.MODELO_IA_DEFAULT
-            rpm_limite = 12  # default cuando IA está desactivada
-            if usar_ia:
-                c_key, c_rpm = st.columns([2, 1])
-                with c_key:
-                    api_key = st.text_input(
-                        "API Key",
-                        type="password",
-                        value=_obtener_api_key_de_secrets(),
-                        help="Se toma de .streamlit/secrets.toml si existe; si no, pégala aquí.",
-                    ).strip()
-                    if not api_key:
-                        st.warning("Se requiere API Key de Gemini.")
-                with c_rpm:
-                    rpm_limite = st.slider("Límite de Peticiones (RPM)", min_value=1, max_value=60, value=12)
+    if False:  # ⚠️ UI de IA oculta temporalmente (no eliminar)
+        st.write("") # Espaciador
+        with st.container(border=True):
+            st.markdown("### 🤖 Rescate por IA Generativa")
+            st.caption("Delega a Gemini el análisis de las descripciones que el motor de reglas no logre resolver. *(Opcional pero recomendado)*.")
+        
+            if not GENAI_DISPONIBLE:
+                st.error("⚠️ El paquete 'google-genai' no está instalado. Instálalo con: pip install google-genai")
+                usar_ia = False
+                api_key = ""
+                modelo_ia = config.MODELO_IA_DEFAULT
+                rpm_limite = 12
+            else:
+                usar_ia = st.toggle(
+                    f"Activar motor de rescate por IA (Gemini · {config.MODELO_IA_DEFAULT})",
+                    value=False,
+                )
 
-                c_modelo, c_test = st.columns([2, 1])
-                with c_modelo:
-                    modelo_ia = st.selectbox(
-                        "Modelo de IA",
-                        config.MODELOS_IA_DISPONIBLES,
-                        index=config.MODELOS_IA_DISPONIBLES.index(config.MODELO_IA_DEFAULT),
-                        help="Si Google retira o renombra un modelo, elige otro de la lista sin cambiar código.",
-                    )
-                with c_test:
-                    st.write("")  # alinear con el selectbox
-                    probar_conexion = st.button("🔌 Probar conexión", width="stretch")
+                api_key = None
+                modelo_ia = config.MODELO_IA_DEFAULT
+                rpm_limite = 12  # default cuando IA está desactivada
+                if usar_ia:
+                    c_key, c_rpm = st.columns([2, 1])
+                    with c_key:
+                        api_key = st.text_input(
+                            "API Key",
+                            type="password",
+                            value=_obtener_api_key_de_secrets(),
+                            help="Se toma de .streamlit/secrets.toml si existe; si no, pégala aquí.",
+                        ).strip()
+                        if not api_key:
+                            st.warning("Se requiere API Key de Gemini.")
+                    with c_rpm:
+                        rpm_limite = st.slider("Límite de Peticiones (RPM)", min_value=1, max_value=60, value=12)
 
-                if probar_conexion:
-                    if api_key:
-                        with st.spinner("Probando conexión con Gemini..."):
-                            ok, detalle = _probar_api_key(api_key, modelo_ia)
-                        if ok:
-                            st.success(detalle)
+                    c_modelo, c_test = st.columns([2, 1])
+                    with c_modelo:
+                        modelo_ia = st.selectbox(
+                            "Modelo de IA",
+                            config.MODELOS_IA_DISPONIBLES,
+                            index=config.MODELOS_IA_DISPONIBLES.index(config.MODELO_IA_DEFAULT),
+                            help="Si Google retira o renombra un modelo, elige otro de la lista sin cambiar código.",
+                        )
+                    with c_test:
+                        st.write("")  # alinear con el selectbox
+                        probar_conexion = st.button("🔌 Probar conexión", width="stretch")
+
+                    if probar_conexion:
+                        if api_key:
+                            with st.spinner("Probando conexión con Gemini..."):
+                                ok, detalle = _probar_api_key(api_key, modelo_ia)
+                            if ok:
+                                st.success(detalle)
+                            else:
+                                st.error(detalle)
                         else:
-                            st.error(detalle)
-                    else:
-                        st.warning("Ingresa una API Key primero.")
+                            st.warning("Ingresa una API Key primero.")
 
 def _generar_excel_resultado(df_resultado, kpis, linea, archivo_origen, hoja_origen, modelo_ia_usado):
     """Genera el buffer Excel (Resumen + Clasificación) de forma lazy.
@@ -843,7 +855,9 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 # =====================================================================
 # SECCIÓN 5: CREAR MAESTRO (DENTRO DEL TAB CREAR)
 # =====================================================================
-with tab_crear:
+# OCULTO temporalmente (no se elimina). Para reactivar: cambia "if False"
+# por "with tab_crear" y restaura la pestaña en los TABS PRINCIPALES.
+if False:
     from src.creador_maestro import (
         muestrear_veritrade,
         generar_maestro_con_ia,
