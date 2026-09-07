@@ -647,6 +647,12 @@ if st.session_state.get("processing_active", False):
 # =====================================================================
 # SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)
 # =====================================================================
+# Safeguard: Si proceso_completado es True, asegurar que df_resultado se recupera si fue limpiado accidentalmente
+if st.session_state.get("proceso_completado") and ("df_resultado" not in st.session_state or st.session_state.df_resultado is None):
+    # En este caso, hay un problema de persistencia. Log it but don't crash.
+    st.warning("⚠️ Se detectó que los resultados no están disponibles. Por favor, recarga la página o vuelve a procesar.")
+    st.session_state.proceso_completado = False
+
 if st.session_state.get("proceso_completado") and st.session_state.df_resultado is not None:
     st.write("")
     st.divider()
@@ -696,11 +702,9 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         marcas_unicas = df_res["Marca_Extraida"].dropna().astype(str).str.strip().str.upper()
         mask_marca_real = ~marcas_unicas.isin(VALORES_MARCA_SIN_RESOLVER)
         n_filas_marca_real = int(mask_marca_real.sum())
-        n_marcas_identificadas = int(marcas_unicas[mask_marca_real].nunique())
     else:
         mask_marca_real = pd.Series(False, index=df_res.index)
         n_filas_marca_real = 0
-        n_marcas_identificadas = 0
 
     # ---- Bloque 3: Tarjetas de marca y características no numéricas ----
     # Características no numéricas = variables categóricas del maestro
@@ -712,50 +716,17 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
     if not cols_caract:
         cols_caract = [c for c in vars_cat if c in df_res.columns]
 
-    if cols_caract:
-        n_caract_por_fila = df_res[cols_caract].notna().sum(axis=1)
-        n_con_marca_y_caract = int((mask_marca_real & (n_caract_por_fila >= 1)).sum())
-        n_con_marca_y_2caract = int((mask_marca_real & (n_caract_por_fila >= 2)).sum())
-        n_con_marca_y_3caract = int((mask_marca_real & (n_caract_por_fila >= 3)).sum())
-    else:
-        n_con_marca_y_caract = 0
-        n_con_marca_y_2caract = 0
-        n_con_marca_y_3caract = 0
-
     pct_marca_real = n_filas_marca_real / total
-    pct_con_marca_y_caract = n_con_marca_y_caract / total
-    pct_con_marca_y_2caract = n_con_marca_y_2caract / total
-    pct_con_marca_y_3caract = n_con_marca_y_3caract / total
 
     st.markdown("#### 🏷️ Marcas y características identificadas")
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2 = st.columns(2)
     c1.metric(
-        "🏷️ Marcas distintas",
-        f"{n_marcas_identificadas:,}",
-        help="Número de marcas únicas detectadas (excluye S/M, genéricas, etc.).",
-    )
-    c2.metric(
         "✅ % con marca real",
         f"{pct_marca_real:.1%}",
         help=f"{n_filas_marca_real:,} de {total:,} filas tienen una marca real (excluye genéricas, S/M y marca de componentes).",
     )
-    c3.metric(
-        "🔍 Marca + 1 característica",
-        f"{pct_con_marca_y_caract:.1%}",
-        help=f"{n_con_marca_y_caract:,} de {total:,} filas tienen marca real y al menos 1 característica no numérica.",
-    )
-    c4.metric(
-        "🔍 Marca + 2 características",
-        f"{pct_con_marca_y_2caract:.1%}",
-        help=f"{n_con_marca_y_2caract:,} de {total:,} filas tienen marca real y al menos 2 características no numéricas.",
-    )
-    c5.metric(
-        "🔍 Marca + 3 características",
-        f"{pct_con_marca_y_3caract:.1%}",
-        help=f"{n_con_marca_y_3caract:,} de {total:,} filas tienen marca real y al menos 3 características no numéricas.",
-    )
 
-    # Tarjeta extra: característica no numérica con más coincidencias
+    # Tarjeta: característica no numérica con más coincidencias
     if cols_caract:
         conteos_caract = df_res[cols_caract].notna().sum().sort_values(ascending=False)
         top_caract_nombre = str(conteos_caract.index[0])
@@ -765,28 +736,11 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         top_caract_valor = 0
     top_caract_pct = top_caract_valor / total
 
-    st.metric(
+    c2.metric(
         "⭐ Característica con más coincidencias",
         f"{top_caract_nombre} ({top_caract_pct:.1%})",
         help=f"{top_caract_valor:,} de {total:,} filas tienen esta característica no numérica identificada.",
     )
-
-    # Desglose: % de coincidencia de TODAS las características no numéricas
-    if cols_caract:
-        st.markdown("#### 📋 Coincidencia por característica")
-        st.caption("Porcentaje de filas donde cada característica no numérica fue identificada.")
-        conteos_caract = df_res[cols_caract].notna().sum().sort_values(ascending=False)
-        df_caract = pd.DataFrame({
-            "Característica": conteos_caract.index,
-            "Filas identificadas": conteos_caract.values,
-            "% de coincidencia": (conteos_caract.values / total * 100).round(1),
-        })
-        df_caract["% de coincidencia"] = df_caract["% de coincidencia"].astype(str) + "%"
-        st.dataframe(
-            df_caract.reset_index(drop=True),
-            use_container_width=True,
-            hide_index=True,
-        )
 
     st.write("")
 
@@ -884,7 +838,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                         st.session_state.get("hoja_origen", ""),
                         st.session_state.get("modelo_ia_usado", ""),
                     )
-                st.rerun()
+                st.success("✅ Excel generado. Usa el botón de descarga abajo.")
 
 # =====================================================================
 # SECCIÓN 5: CREAR MAESTRO (DENTRO DEL TAB CREAR)
