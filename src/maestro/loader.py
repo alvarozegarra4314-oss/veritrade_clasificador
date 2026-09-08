@@ -44,6 +44,26 @@ def normalizar_operador_excel(valor):
     return aliases.get(texto, texto)
 
 
+def _celda_a_texto(valor):
+    """
+    Convierte una celda de Excel a texto limpio.
+    NaN/vacío -> "" (NUNCA el string "nan").
+
+    Importante: pandas lee celdas vacías como NaN; si se hace str() directo
+    queda el literal "nan", que luego se filtra como si fuera un valor real
+    (ej. VARIABLE_PRODUCTO_PRINCIPAL="nan" generaba una columna llamada "nan"
+    en el resultado final).
+    """
+    if valor is None:
+        return ""
+    if isinstance(valor, float) and pd.isna(valor):
+        return ""
+    texto = str(valor).strip()
+    if texto.upper() in ("NAN", "NONE", "NULL", "NAT"):
+        return ""
+    return texto
+
+
 class CargarMaestro:
     def __init__(self, ruta_excel):
         self.ruta_excel = ruta_excel
@@ -90,7 +110,10 @@ class CargarMaestro:
                 df_cfg.columns = [str(c).strip() for c in df_cfg.columns]
                 col_p = [c for c in df_cfg.columns if 'PARAMETRO' in c.upper() or 'PARAM' in c.upper()][0]
                 col_v = [c for c in df_cfg.columns if 'VALOR' in c.upper() or 'VAL' in c.upper()][0]
-                self.config_linea = dict(zip(df_cfg[col_p].astype(str).str.strip(), df_cfg[col_v].astype(str).str.strip()))
+                self.config_linea = dict(zip(
+                    df_cfg[col_p].map(_celda_a_texto),
+                    df_cfg[col_v].map(_celda_a_texto),
+                ))
 
             # 1. Marcas
             if s_marcas:
@@ -295,9 +318,9 @@ class CargarMaestro:
             configurar nada.
         3º) Salvaguardas finales: cualquiera de las categóricas, o el clásico.
         """
-        cfg = self.config_linea.get("VARIABLE_PRODUCTO_PRINCIPAL", "")
-        if cfg and str(cfg).strip():
-            return str(cfg).strip()
+        cfg = _celda_a_texto(self.config_linea.get("VARIABLE_PRODUCTO_PRINCIPAL", ""))
+        if cfg:
+            return cfg
 
         mejor = None
         mayor_reglas = -1
@@ -322,4 +345,4 @@ class CargarMaestro:
         Puede estar vacío: entonces basta con haber identificado algún valor de
         la variable principal para considerar la fila cubierta.
         """
-        return self.config_linea.get("VALOR_PRODUCTO_PRINCIPAL", "")
+        return _celda_a_texto(self.config_linea.get("VALOR_PRODUCTO_PRINCIPAL", ""))

@@ -16,7 +16,7 @@ Ejecutar:  python -m pytest tests/ -v
 import pandas as pd
 import pytest
 
-from src.maestro.loader import normalizar_operador_excel
+from src.maestro.loader import normalizar_operador_excel, _celda_a_texto, CargarMaestro
 from src.maestro.reglas import (
     normalizar_numero_extraido,
     es_indicador_sin_marca,
@@ -208,6 +208,51 @@ def test_modelo_unidad_tecnica_sola_rechazada():
 def test_modelo_frase_descriptiva_rechazada():
     # Frase de specs con muchas palabras no es modelo
     assert es_candidato_modelo_valido("5A BIVOLT LIZ BRANCO DIVERSO") is False
+
+
+# ----------------------------------------------------------------------
+# Bug: celdas vacías en 0b_Config_Linea generaban columna "nan"
+# ----------------------------------------------------------------------
+def test_celda_a_texto_convierte_nan_a_vacio():
+    assert _celda_a_texto(None) == ""
+    assert _celda_a_texto(float("nan")) == ""
+    assert _celda_a_texto("nan") == ""
+    assert _celda_a_texto("NAN") == ""
+    assert _celda_a_texto("UPS") == "UPS"
+    assert _celda_a_texto("  Tipo_Producto_Detallado  ") == "Tipo_Producto_Detallado"
+
+
+def test_config_vacio_no_genera_columna_nan():
+    # Maestro con 0b_Config_Linea de valores vacíos: NO debe producir una
+    # columna llamada "nan" ni devolver "nan" como variable principal.
+    import io
+
+    buf = io.BytesIO()
+    w = pd.ExcelWriter(buf, engine="openpyxl")
+    pd.DataFrame({
+        "PARAMETRO": ["LINEA_PRODUCTO", "VARIABLE_PRODUCTO_PRINCIPAL", "VALOR_PRODUCTO_PRINCIPAL"],
+        "VALOR": ["", "", ""],
+    }).to_excel(w, sheet_name="0b_Config_Linea", index=False)
+    pd.DataFrame({"PATRON": ["APC"], "MARCA": ["APC"]}).to_excel(w, sheet_name="1_Marcas", index=False)
+    pd.DataFrame({
+        "Variable": ["Tipo_Producto_Detallado"],
+        "Valor_Resultado": ["UPS"],
+        "Prioridad": [1],
+        "PALABRA CLAVE": ["ups"],
+    }).to_excel(w, sheet_name="2_Caracteristicas", index=False)
+    w.close()
+    buf.seek(0)
+
+    m = CargarMaestro(ruta_excel=buf)
+    assert m.config_linea.get("VARIABLE_PRODUCTO_PRINCIPAL") == ""
+    assert m.variable_producto_principal == "Tipo_Producto_Detallado"  # autoinferida
+    assert m.valor_producto_principal == ""
+
+    from src.pipeline import procesar_dataframe_dinamico
+    df = pd.DataFrame({"Descripcion Comercial": ["UPS APC 3000VA", "Cable de red"]})
+    out = procesar_dataframe_dinamico(df, m)
+    assert "nan" not in out.columns
+    assert "Tipo_Producto_Detallado" in out.columns
 
 
 # ----------------------------------------------------------------------
