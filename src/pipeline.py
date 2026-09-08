@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from src.texto_utils import limpiar_texto, identificar_columnas_descripcion
 from src.maestro.loader import CargarMaestro
 from src.maestro.reglas import (
@@ -24,6 +25,40 @@ def _fila_necesita_rescate(marca, cat_vals: dict, var_principal: str) -> bool:
     if cat_vals.get(var_principal) is None:
         return True
     return False
+
+
+def agregar_columnas_fecha(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Si el DataFrame tiene una columna de fecha (típicamente "Fecha" en
+    Veritrade) y NO trae ya las columnas derivadas AÑO/MES/HALF, las genera:
+      - AÑO: número (ej. 2025)
+      - MES: texto con 2 dígitos (01, 02, ..., 12)
+      - HALF: semestre del año (H1 = primera mitad, H2 = segunda mitad)
+    Si el archivo ya viene procesado (tiene AÑO/MES/HALF), no hace nada.
+    """
+    # Si ya existen las columnas derivadas, no hacemos nada (archivo procesado).
+    if {"AÑO", "MES", "HALF"}.issubset(df.columns):
+        return df
+
+    # Detectar la columna de fecha por nombre (FECHA / DATE).
+    col_fecha = next(
+        (c for c in df.columns if "FECHA" in str(c).upper() or "DATE" in str(c).upper()),
+        None,
+    )
+    if col_fecha is None:
+        return df
+
+    fechas = pd.to_datetime(df[col_fecha], errors="coerce")
+    if fechas.isna().all():
+        return df  # la columna no contenía fechas parseables
+
+    df = df.copy()
+    df["AÑO"] = fechas.dt.year
+    df["MES"] = fechas.dt.strftime("%m")  # 01, 02, ..., 12
+    df["HALF"] = np.where(fechas.dt.month <= 6, "H1", "H2")
+    # Las filas sin fecha quedan vacías en las tres columnas derivadas.
+    df.loc[fechas.isna(), ["AÑO", "MES", "HALF"]] = None
+    return df
 
 
 def procesar_dataframe_dinamico(
@@ -255,6 +290,10 @@ def procesar_dataframe_dinamico(
         errors="ignore",
     )
     df_final = pd.concat([df_raw.reset_index(drop=True), df_res.reset_index(drop=True)], axis=1)
+
+    # Columnas derivadas de la fecha (AÑO, MES, HALF) si el archivo trae la
+    # columna "Fecha" y no viene ya procesado con esas columnas.
+    df_final = agregar_columnas_fecha(df_final)
 
     # Exponemos lo aprendido en esta corrida sobre el propio objeto
     # rescatador_ia (no cambiamos la firma de retorno de la función para
