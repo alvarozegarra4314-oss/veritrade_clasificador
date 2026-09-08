@@ -665,192 +665,153 @@ if st.session_state.get("proceso_completado") and ("df_resultado" not in st.sess
     st.warning("⚠️ Se detectó que los resultados no están disponibles. Por favor, recarga la página o vuelve a procesar.")
     st.session_state.proceso_completado = False
 
+# Fondo verdoso para diferenciar el área de resultados del resto de la app.
+st.markdown(
+    """
+    <style>
+        div.st-key-resultados {
+            background-color: #eaf7ea;
+            border: 1px solid #b7e1b7;
+            border-radius: 12px;
+            padding: 1.2rem;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 if st.session_state.get("proceso_completado") and st.session_state.df_resultado is not None:
-    st.write("")
-    st.divider()
+    with st.container(border=True, key="resultados"):
+        st.write("")
+        st.divider()
 
-    col_titulo, col_tag = st.columns([4, 1])
-    with col_titulo:
-        st.markdown("### 📥 Resultados y Descargas")
-    with col_tag:
-        st.success("✅ Proceso Finalizado")
+        col_titulo, col_tag = st.columns([4, 1])
+        with col_titulo:
+            st.markdown("### 📥 Resultados y Descargas")
+        with col_tag:
+            st.success("✅ Proceso Finalizado")
 
-    kpis = st.session_state.kpis
-    total = max(kpis.get("total", 1), 1)
-    usar_ia = st.session_state.get("_usar_ia", False)
+        kpis = st.session_state.kpis
+        total = max(kpis.get("total", 1), 1)
+        usar_ia = st.session_state.get("_usar_ia", False)
 
-    # ---- Bloque 1: Resultado del proceso ----
-    if usar_ia:
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
-        m2.metric("Rescatados IA", f"{kpis.get('rescatados', 0):,}")
-        m3.metric("Ahorro Caché", f"{kpis.get('cache', 0):,}")
-        m4.metric("Nuevas Reglas", f"+{kpis.get('nuevas', 0)}")
-    else:
-        m1, m2 = st.columns(2)
-        m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
-        m2.metric("Motor", "Reglas deterministas")
-
-    if kpis.get("errores", 0) > 0:
-        st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
-
-    st.write("")
-
-    # ---- Bloque 2: Cobertura de clasificación y marcas identificadas ----
-    con_producto = kpis.get("con_producto", 0)
-    pct_con_producto = con_producto / total
-
-    # Barra de cobertura general: % de filas donde se identificó ALGÚN tipo de producto
-    st.markdown("#### 🎯 Cobertura de clasificación")
-    st.caption("Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.).")
-    st.progress(
-        min(pct_con_producto, 1.0),
-        text=f"Identificación de producto: {con_producto:,} de {total:,} filas ({pct_con_producto:.1%})",
-    )
-
-    # Marcas identificadas: número de marcas distintas reales (excluye genéricas/sin marca)
-    df_res = st.session_state.df_resultado
-    if "Marca_Extraida" in df_res.columns:
-        marcas_unicas = df_res["Marca_Extraida"].dropna().astype(str).str.strip().str.upper()
-        mask_marca_real = ~marcas_unicas.isin(VALORES_MARCA_SIN_RESOLVER)
-        n_filas_marca_real = int(mask_marca_real.sum())
-    else:
-        mask_marca_real = pd.Series(False, index=df_res.index)
-        n_filas_marca_real = 0
-
-    # ---- Bloque 3: Tarjetas de marca y características no numéricas ----
-    # Características no numéricas = variables categóricas del maestro
-    # (tipo de tecnología, fases, etc. — se excluyen las numéricas como
-    # amperaje, voltaje, kVA).
-    vars_cat = st.session_state.get("variables_categoricas", [])
-    var_principal = st.session_state.get("var_principal_nombre", "")
-    cols_caract = [c for c in vars_cat if c != var_principal and c in df_res.columns]
-    if not cols_caract:
-        cols_caract = [c for c in vars_cat if c in df_res.columns]
-
-    pct_marca_real = n_filas_marca_real / total
-
-    st.markdown("#### 🏷️ Marcas y características identificadas")
-    c1, c2 = st.columns(2)
-    c1.metric(
-        "✅ % con marca real",
-        f"{pct_marca_real:.1%}",
-        help=f"{n_filas_marca_real:,} de {total:,} filas tienen una marca real (excluye genéricas, S/M y marca de componentes).",
-    )
-
-    # Tarjeta: característica no numérica con más coincidencias
-    if cols_caract:
-        conteos_caract = df_res[cols_caract].notna().sum().sort_values(ascending=False)
-        top_caract_nombre = str(conteos_caract.index[0])
-        top_caract_valor = int(conteos_caract.iloc[0])
-    else:
-        top_caract_nombre = "—"
-        top_caract_valor = 0
-    top_caract_pct = top_caract_valor / total
-
-    c2.metric(
-        "⭐ Característica con más coincidencias",
-        f"{top_caract_nombre} ({top_caract_pct:.1%})",
-        help=f"{top_caract_valor:,} de {total:,} filas tienen esta característica no numérica identificada.",
-    )
-
-    st.write("")
-
-    # ---- Bloque 4: Top marcas detectadas ----
-    if "Marca_Extraida" in df_res.columns:
-        # Si existe la columna de cantidad (Qty 2 / Qty2), el top se ordena por
-        # SUMA de cantidad (peso real de cada marca); si no, se usa el conteo.
-        col_qty = next((c for c in ("Qty 2", "Qty2") if c in df_res.columns), None)
-        usar_qty2 = col_qty is not None
-        if usar_qty2:
-            top_marcas = (
-                df_res.loc[mask_marca_real, ["Marca_Extraida", col_qty]]
-                .groupby("Marca_Extraida")[col_qty]
-                .sum()
-                .sort_values(ascending=False)
-                .head(8)
-            )
+        # ---- Bloque 1: Resultado del proceso ----
+        if usar_ia:
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
+            m2.metric("Rescatados IA", f"{kpis.get('rescatados', 0):,}")
+            m3.metric("Ahorro Caché", f"{kpis.get('cache', 0):,}")
+            m4.metric("Nuevas Reglas", f"+{kpis.get('nuevas', 0)}")
         else:
-            top_marcas = (
-                marcas_unicas[mask_marca_real]
-                .value_counts()
-                .head(8)
-                .sort_values(ascending=False)
-            )
-        if len(top_marcas) > 0:
-            st.markdown("#### 🏆 Top marcas detectadas")
-            if usar_qty2:
-                st.caption(f"Marcas reales ordenadas por suma de {col_qty} (excluye genéricas y sin marca).")
-            else:
-                st.caption("Las marcas reales más frecuentes en el archivo (excluye genéricas y sin marca).")
-            import altair as alt
+            m1, m2 = st.columns(2)
+            m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
+            m2.metric("Motor", "Reglas deterministas")
 
-            df_top = top_marcas.reset_index()
-            df_top.columns = ["Marca", "Cantidad"]
-            chart = (
-                alt.Chart(df_top)
-                .mark_bar(color="#4C9AFF")
-                .encode(
-                    x=alt.X("Cantidad:Q", title=col_qty if usar_qty2 else "Filas"),
-                    y=alt.Y(
-                        "Marca:N",
-                        sort="-x",
-                        title=None,
-                        axis=alt.Axis(labelLimit=200),
-                    ),
-                    tooltip=["Marca:N", "Cantidad:Q"],
+        if kpis.get("errores", 0) > 0:
+            st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
+
+        st.write("")
+
+        # ---- Bloque 2: Cobertura de clasificación y marcas identificadas ----
+        con_producto = kpis.get("con_producto", 0)
+        pct_con_producto = con_producto / total
+
+        # Barra de cobertura general: % de filas donde se identificó ALGÚN tipo de producto
+        st.markdown("#### 🎯 Cobertura de clasificación")
+        st.caption("Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.).")
+        st.progress(
+            min(pct_con_producto, 1.0),
+            text=f"Identificación de producto: {con_producto:,} de {total:,} filas ({pct_con_producto:.1%})",
+        )
+
+        # Marcas identificadas: número de marcas distintas reales (excluye genéricas/sin marca)
+        df_res = st.session_state.df_resultado
+        if "Marca_Extraida" in df_res.columns:
+            marcas_unicas = df_res["Marca_Extraida"].dropna().astype(str).str.strip().str.upper()
+            mask_marca_real = ~marcas_unicas.isin(VALORES_MARCA_SIN_RESOLVER)
+            n_filas_marca_real = int(mask_marca_real.sum())
+        else:
+            mask_marca_real = pd.Series(False, index=df_res.index)
+            n_filas_marca_real = 0
+
+        # ---- Bloque 3: Tarjetas de marca y características no numéricas ----
+        # Características no numéricas = variables categóricas del maestro
+        # (tipo de tecnología, fases, etc. — se excluyen las numéricas como
+        # amperaje, voltaje, kVA).
+        vars_cat = st.session_state.get("variables_categoricas", [])
+        var_principal = st.session_state.get("var_principal_nombre", "")
+        cols_caract = [c for c in vars_cat if c != var_principal and c in df_res.columns]
+        if not cols_caract:
+            cols_caract = [c for c in vars_cat if c in df_res.columns]
+
+        pct_marca_real = n_filas_marca_real / total
+
+        st.markdown("#### 🏷️ Marcas y características identificadas")
+        c1, c2 = st.columns(2)
+        c1.metric(
+            "✅ % con marca real",
+            f"{pct_marca_real:.1%}",
+            help=f"{n_filas_marca_real:,} de {total:,} filas tienen una marca real (excluye genéricas, S/M y marca de componentes).",
+        )
+
+        # Tarjeta: característica no numérica con más coincidencias
+        if cols_caract:
+            conteos_caract = df_res[cols_caract].notna().sum().sort_values(ascending=False)
+            top_caract_nombre = str(conteos_caract.index[0])
+            top_caract_valor = int(conteos_caract.iloc[0])
+        else:
+            top_caract_nombre = "—"
+            top_caract_valor = 0
+        top_caract_pct = top_caract_valor / total
+
+        c2.metric(
+            "⭐ Característica con más coincidencias",
+            f"{top_caract_nombre} ({top_caract_pct:.1%})",
+            help=f"{top_caract_valor:,} de {total:,} filas tienen esta característica no numérica identificada.",
+        )
+
+        st.write("")
+
+        d1, d2 = st.columns(2)
+        with d1:
+            if st.session_state.maestro_opt_data is not None:
+                st.download_button(
+                    label=f"🧠 Descargar Maestro Optimizado",
+                    data=st.session_state.maestro_opt_data,
+                    file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    width="stretch",
+                    key="btn_descarga_maestro",
                 )
-            )
-            text = chart.mark_text(
-                align="left",
-                dx=4,
-                color="#333333",
-                fontSize=12,
-            ).encode(text="Cantidad:Q")
-            st.altair_chart((chart + text).properties(height=280), use_container_width=True)
+            else:
+                st.button("🧠 Maestro Optimizado (Sin aprendizajes nuevos)", disabled=True, width="stretch")
 
-    st.write("")
-
-    d1, d2 = st.columns(2)
-    with d1:
-        if st.session_state.maestro_opt_data is not None:
-            st.download_button(
-                label=f"🧠 Descargar Maestro Optimizado",
-                data=st.session_state.maestro_opt_data,
-                file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width="stretch",
-                key="btn_descarga_maestro",
-            )
-        else:
-            st.button("🧠 Maestro Optimizado (Sin aprendizajes nuevos)", disabled=True, width="stretch")
-
-    with d2:
-        if st.session_state.df_export_data is not None:
-            st.download_button(
-                label=f"� Descargar Resultado (Excel)",
-                data=st.session_state.df_export_data,
-                file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width="stretch",
-                key="btn_descarga_resultado",
-            )
-        else:
-            if st.button(
-                "⚙️ Preparar Excel para descargar",
-                width="stretch",
-                key="btn_gen_resultado",
-            ):
-                with st.spinner("Generando Excel… Esto puede tardar unos segundos para archivos grandes."):
-                    st.session_state.df_export_data = _generar_excel_resultado(
-                        st.session_state.df_resultado,
-                        st.session_state.kpis,
-                        st.session_state.get("linea_producto", "Producto"),
-                        st.session_state.get("archivo_origen", ""),
-                        st.session_state.get("hoja_origen", ""),
-                        st.session_state.get("modelo_ia_usado", ""),
-                    )
-                st.success("✅ Excel generado. Usa el botón de descarga abajo.")
+        with d2:
+            if st.session_state.df_export_data is not None:
+                st.download_button(
+                    label=f"📥 Descargar Resultado (Excel)",
+                    data=st.session_state.df_export_data,
+                    file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    width="stretch",
+                    key="btn_descarga_resultado",
+                )
+            else:
+                if st.button(
+                    "⚙️ Preparar Excel para descargar",
+                    width="stretch",
+                    key="btn_gen_resultado",
+                ):
+                    with st.spinner("Generando Excel… Esto puede tardar unos segundos para archivos grandes."):
+                        st.session_state.df_export_data = _generar_excel_resultado(
+                            st.session_state.df_resultado,
+                            st.session_state.kpis,
+                            st.session_state.get("linea_producto", "Producto"),
+                            st.session_state.get("archivo_origen", ""),
+                            st.session_state.get("hoja_origen", ""),
+                            st.session_state.get("modelo_ia_usado", ""),
+                        )
+                    st.success("✅ Excel generado. Usa el botón de descarga abajo.")
 
 # =====================================================================
 # SECCIÓN 5: CREAR MAESTRO (DENTRO DEL TAB CREAR)
