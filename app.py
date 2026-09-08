@@ -730,12 +730,11 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         if "Marca_Extraida" in df_res.columns:
             marcas_unicas = df_res["Marca_Extraida"].dropna().astype(str).str.strip().str.upper()
             mask_marca_real = ~marcas_unicas.isin(VALORES_MARCA_SIN_RESOLVER)
-            n_filas_marca_real = int(mask_marca_real.sum())
+            n_marcas_unicas = int(marcas_unicas[mask_marca_real].nunique())
         else:
-            mask_marca_real = pd.Series(False, index=df_res.index)
-            n_filas_marca_real = 0
+            n_marcas_unicas = 0
 
-        # ---- Bloque 3: Tarjetas de marca y características no numéricas ----
+        # ---- Bloque 3: Marcas únicas y % de coincidencia por característica ----
         # Características no numéricas = variables categóricas del maestro
         # (tipo de tecnología, fases, etc. — se excluyen las numéricas como
         # amperaje, voltaje, kVA).
@@ -745,31 +744,30 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         if not cols_caract:
             cols_caract = [c for c in vars_cat if c in df_res.columns]
 
-        pct_marca_real = n_filas_marca_real / total
-
         st.markdown("#### 🏷️ Marcas y características identificadas")
-        c1, c2 = st.columns(2)
-        c1.metric(
-            "✅ % con marca real",
-            f"{pct_marca_real:.1%}",
-            help=f"{n_filas_marca_real:,} de {total:,} filas tienen una marca real (excluye genéricas, S/M y marca de componentes).",
+
+        # Marcas únicas identificadas (excluye genéricas, S/M y marca de componentes)
+        st.metric(
+            "🏷️ Marcas únicas identificadas",
+            f"{n_marcas_unicas:,}",
+            help="Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes).",
         )
 
-        # Tarjeta: característica no numérica con más coincidencias
+        # % de coincidencia de TODAS las características no técnicas (dinámico:
+        # si el maestro tiene 2, se muestran 2; si tiene 4, se muestran 4).
         if cols_caract:
-            conteos_caract = df_res[cols_caract].notna().sum().sort_values(ascending=False)
-            top_caract_nombre = str(conteos_caract.index[0])
-            top_caract_valor = int(conteos_caract.iloc[0])
+            conteos_caract = df_res[cols_caract].notna().sum()
+            cols_metricas = st.columns(len(cols_caract))
+            for col_metrica, var in zip(cols_metricas, cols_caract):
+                n_coinc = int(conteos_caract[var])
+                pct_coinc = n_coinc / total
+                col_metrica.metric(
+                    var,
+                    f"{pct_coinc:.1%}",
+                    help=f"{n_coinc:,} de {total:,} filas tienen esta característica identificada.",
+                )
         else:
-            top_caract_nombre = "—"
-            top_caract_valor = 0
-        top_caract_pct = top_caract_valor / total
-
-        c2.metric(
-            "⭐ Característica con más coincidencias",
-            f"{top_caract_nombre} ({top_caract_pct:.1%})",
-            help=f"{top_caract_valor:,} de {total:,} filas tienen esta característica no numérica identificada.",
-        )
+            st.caption("No hay características no técnicas configuradas en el maestro.")
 
         st.write("")
 
