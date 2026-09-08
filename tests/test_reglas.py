@@ -21,6 +21,7 @@ from src.maestro.reglas import (
     normalizar_numero_extraido,
     es_indicador_sin_marca,
     es_candidato_marca_valido,
+    es_candidato_modelo_valido,
     tiene_negacion_previa,
     extraer_producto_y_modelo_desc1,
     evaluar_potencia_numerica_condicion,
@@ -140,6 +141,73 @@ def test_producto_y_modelo_desc1_sin_tercera_posicion():
 
 def test_producto_y_modelo_desc1_vacio():
     assert extraer_producto_y_modelo_desc1("") == (None, None)
+
+
+# ----------------------------------------------------------------------
+# Saneamiento de modelo/serie: validación heurística de "parece modelo"
+# ----------------------------------------------------------------------
+class _MaestroStub:
+    """Stub mínimo de maestro con lista de marcas para el validador."""
+
+    def __init__(self, marcas):
+        self.lista_marcas = marcas
+
+
+def test_modelo_puro_numero_rechazado():
+    # "si tiene puro número no es modelo"
+    producto, modelo = extraer_producto_y_modelo_desc1("UPS, APC, 12345")
+    assert producto == "UPS"
+    assert modelo is None
+
+
+def test_modelo_demasiado_largo_rechazado():
+    # "si es demasiado largo tampoco es modelo"
+    producto, modelo = extraer_producto_y_modelo_desc1(
+        "UPS, APC, " + "X" * 50
+    )
+    assert modelo is None
+
+
+def test_modelo_con_codigo_recortado():
+    # El modelo real está ANTES del marcador CODIGO:
+    producto, modelo = extraer_producto_y_modelo_desc1(
+        "BLOQUE-VM DE ALIMENTACION, APC, 0J-0N-9879 CODIGO: 0J-0N-9879 BLOQUE-VM 27KVA"
+    )
+    assert modelo == "0J-0N-9879"
+
+
+def test_modelo_valido_con_letras_y_numeros():
+    # Modelo limpio en posición 3; las specs posteriores NO se arrastran
+    producto, modelo = extraer_producto_y_modelo_desc1(
+        "SISTEMA DE ALIMENTACION, ACWATT, SS001B, 1KVA/1KW TOWER UPS"
+    )
+    assert modelo == "SS001B"
+
+
+def test_modelo_que_es_marca_rechazado():
+    maestro = _MaestroStub([("APC", "APC")])
+    assert es_candidato_modelo_valido("APC", maestro) is False
+    assert es_candidato_modelo_valido("SMX3000", maestro) is True
+
+
+def test_modelo_en_posicion_4_cuando_pos3_es_marca():
+    # Si la posición 3 es una marca conocida, se escanea la siguiente
+    maestro = _MaestroStub([("APC", "APC")])
+    producto, modelo = extraer_producto_y_modelo_desc1(
+        "UPS, MARCA, APC, SMX3000LVNC", maestro
+    )
+    assert modelo == "SMX3000LVNC"
+
+
+def test_modelo_unidad_tecnica_sola_rechazada():
+    # "KVA" solo no es un modelo
+    assert es_candidato_modelo_valido("KVA") is False
+    assert es_candidato_modelo_valido("W") is False
+
+
+def test_modelo_frase_descriptiva_rechazada():
+    # Frase de specs con muchas palabras no es modelo
+    assert es_candidato_modelo_valido("5A BIVOLT LIZ BRANCO DIVERSO") is False
 
 
 # ----------------------------------------------------------------------

@@ -283,8 +283,43 @@ class CargarMaestro:
 
     @property
     def variable_producto_principal(self) -> str:
-        return self.config_linea.get("VARIABLE_PRODUCTO_PRINCIPAL", "Tipo_Producto_Detallado")
+        """
+        Variable principal del negocio (lo que identifica el "tipo de producto":
+        UPS, interruptor, batería, etc.).
+
+        1º) Si 0b_Config_Linea declara VARIABLE_PRODUCTO_PRINCIPAL, se respeta.
+        2º) Si la hoja de configuración está ausente o incompleta, SE AUTO INFIERE:
+            se toma la variable categórica con más reglas en 2_Caracteristicas
+            (probablemente la dimensión central del negocio); ante empate, la
+            primera declarada. Con ello el maestro funciona SIN necesidad de
+            configurar nada.
+        3º) Salvaguardas finales: cualquiera de las categóricas, o el clásico.
+        """
+        cfg = self.config_linea.get("VARIABLE_PRODUCTO_PRINCIPAL", "")
+        if cfg and str(cfg).strip():
+            return str(cfg).strip()
+
+        mejor = None
+        mayor_reglas = -1
+        menor_idx = float("inf")
+        for idx, var in enumerate(self.variables_categoricas):
+            n = len(self.dict_caracteristicas.get(var, []))
+            if n > mayor_reglas or (n == mayor_reglas and idx < menor_idx):
+                mejor, mayor_reglas, menor_idx = var, n, idx
+        if mejor:
+            return mejor
+
+        if self.variables_categoricas:
+            return self.variables_categoricas[0]
+
+        return "Tipo_Producto_Detallado"
 
     @property
     def valor_producto_principal(self) -> str:
+        """
+        Valor específico dentro de la variable principal usado SOLO para decidir
+        la marca por defecto (dicotomía Marca Principal / Marca Componentes).
+        Puede estar vacío: entonces basta con haber identificado algún valor de
+        la variable principal para considerar la fila cubierta.
+        """
         return self.config_linea.get("VALOR_PRODUCTO_PRINCIPAL", "")

@@ -415,8 +415,8 @@ def _generar_excel_resultado(df_resultado, kpis, linea, archivo_origen, hoja_ori
     Solo se ejecuta cuando el usuario pulsa descargar, NO durante el procesamiento.
     Esto evita que el hilo se bloquee 10-30s generando openpyxl para 14k+ filas."""
     _columnas_auxiliares_no_exportar = {
-        "Marca_Declarada", "Tipo_Producto_Detallado",
-        "Producto_Texto_Desc1", "Modelo_Serie_Desc1",
+        "Marca_Declarada",
+        "Producto_Texto_Desc1",
         "Rescatado_Por_IA",
     }
     _df_export = df_resultado.drop(
@@ -566,9 +566,10 @@ if procesar:
                     "con_producto": 0, "sin_producto": 0, "sin_marca": 0, "pendientes": 0,
                 }
 
-                if "Producto_Declarado" in _df_resultado:
-                    _kpis["con_producto"] = int(_df_resultado["Producto_Declarado"].notna().sum())
-                    _kpis["sin_producto"] = int(_df_resultado["Producto_Declarado"].isna().sum())
+                _var_principal = _maestro.variable_producto_principal
+                if _var_principal in _df_resultado:
+                    _kpis["con_producto"] = int(_df_resultado[_var_principal].notna().sum())
+                    _kpis["sin_producto"] = int(_df_resultado[_var_principal].isna().sum())
 
                 if "Marca_Extraida" in _df_resultado:
                     _kpis["sin_marca"] = int(
@@ -576,8 +577,8 @@ if procesar:
                     )
 
                 _pend_mask = pd.Series(False, index=_df_resultado.index)
-                if "Producto_Declarado" in _df_resultado:
-                    _pend_mask |= _df_resultado["Producto_Declarado"].isna()
+                if _var_principal in _df_resultado:
+                    _pend_mask |= _df_resultado[_var_principal].isna()
                 if "Marca_Extraida" in _df_resultado:
                     _pend_mask |= _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER)
                 _kpis["pendientes"] = int(_pend_mask.sum())

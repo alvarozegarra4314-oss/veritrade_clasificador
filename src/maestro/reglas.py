@@ -28,6 +28,18 @@ PREFIJOS_NEGACION = [
     "NO ", "SIN ", "EXCLUYE ", "NO INCLUYE ", "S/ ", "S/MAPA ", "SIN/ "
 ]
 
+# Marcadores de especificaciones técnicas que delimitan el FIN de un modelo.
+# Si un candidato a modelo contiene alguno, se recorta en el primero que
+# aparezca: el modelo real suele estar ANTES del marcador (ej.
+# "0J-0N-9879 CODIGO: 0J-0N-9879 BLOQUE-VM 27KVA" -> "0J-0N-9879").
+_PATRON_CORTE_MODELO = re.compile(
+    r"(?:CODIGO\s*:|COD\s*:|FUNCION\s*:|USO\s*:|SERIES|//|"
+    r"RECTIFICADOR|INVERSOR|BATERIA|BATERIAS|CARGADOR|TECNOLOGIA|ALARMAS|PANTALLA|TARJETA|"
+    r"TOWER|RACK|ONLINE|MODULAR|LONG\s+RUN|"
+    r"\bKVA\b|\bKW\b|\bVOLT\b|\bVOLTIO\b|\bHZ\b|\bAMP\b|\bWITH\b|\bPF\s*=\b)",
+    re.IGNORECASE,
+)
+
 def es_indicador_sin_marca(candidato: str) -> bool:
     """Retorna True si el texto declara explícitamente que no tiene marca."""
     if not candidato:
@@ -163,7 +175,75 @@ def extraer_marca(desc_clean: str, maestro, desc_1_clean: str = None):
     return None, None
 
 
-def extraer_producto_y_modelo_desc1(desc_1_clean: str):
+def _recortar_candidato_modelo(candidato: str) -> str:
+    """
+    Recorta un candidato a modelo en el primer marcador de especificaciones
+    (CODIGO:, FUNCION:, KVA, TOWER, etc.). Devuelve solo el segmento inicial
+    que podría ser el modelo real, limpio de puntuación residual.
+    """
+    if not candidato:
+        return ""
+    m = _PATRON_CORTE_MODELO.search(candidato)
+    if m:
+        candidato = candidato[: m.start()]
+    return candidato.strip().strip(",;:/- ").strip()
+
+
+def es_candidato_modelo_valido(candidato: str, maestro=None) -> bool:
+    """
+    Valida si una cadena realmente parece un modelo/serie comercial.
+
+    Reglas heurísticas (en orden):
+      1. Vacío o indicador de "sin marca" -> no.
+      2. Demasiado largo (> 40 chars) -> probablemente specs, no modelo.
+      3. Demasiadas palabras (> 3) -> probablemente frase descriptiva.
+      4. Puro número (sin letras) -> no es modelo.
+      5. Contiene marcadores de specs/código (no recortados) -> no.
+      6. Si es UNA sola palabra y es unidad técnica o término descartado -> no.
+      7. Es una marca conocida del maestro -> no es modelo (es la marca).
+    """
+    if not candidato:
+        return False
+    cand = candidato.strip()
+    cand_upper = cand.upper()
+
+    # 1. Indicador explícito de sin marca
+    if es_indicador_sin_marca(cand_upper):
+        return False
+
+    # 2. Demasiado largo -> probablemente specs, no modelo
+    if len(cand) > 40:
+        return False
+
+    # 3. Demasiadas palabras -> probablemente frase descriptiva
+    if len(cand.split()) > 3:
+        return False
+
+    # 4. Puro número (sin letras) -> no es modelo
+    if not any(ch.isalpha() for ch in cand):
+        return False
+
+    # 5. Contiene marcadores de specs/código (no recortados)
+    if _PATRON_CORTE_MODELO.search(cand):
+        return False
+
+    # 6. Si es UNA sola palabra y es unidad técnica o término descartado
+    palabras = cand_upper.split()
+    if len(palabras) == 1:
+        p_clean = re.sub(r"[^\w]", "", palabras[0])
+        if p_clean in UNIDADES_Y_SPECS or p_clean in PALABRAS_DESCARTE:
+            return False
+
+    # 7. Es una marca conocida del maestro -> no es modelo
+    if maestro is not None:
+        for patron, _ in maestro.lista_marcas:
+            if re.search(fr"(?:^|(?<=\W)){re.escape(patron)}(?:$|(?=\W))", cand_upper):
+                return False
+
+    return True
+
+
+def extraer_producto_y_modelo_desc1(desc_1_clean: str, maestro=None):
     """
     Extrae DIRECTAMENTE por posición (sin diccionarios ni regex de negocio)
     dos campos a partir de "Descripcion 1", que sigue el formato típico:
@@ -180,14 +260,14 @@ def extraer_producto_y_modelo_desc1(desc_1_clean: str):
       se mezcla con las demás columnas de descripción.
     - `producto_texto` = todo el bloque antes de la primera coma (posición 1).
       Si no hay comas, es la descripción completa.
-    - `modelo_serie` = todo lo que queda a partir de la 3ra posición
-      (después de la marca, posición 2). Si hay más de 3 bloques,
-      se re-unen con ", " porque el modelo/serie puede traer comas
-      internas (ej. números de serie con formato raro).
-    - Si no existe la posición 3 (p. ej. "PRODUCTO, MARCA" sin modelo),
-      `modelo_serie` devuelve None.
-    - No aplica validaciones de "marca válida" ni descarta S/M: es una
-      extracción posicional pura, independiente de `extraer_marca`.
+    - `modelo_serie` = el PRIMER bloque a partir de la posición 3 que supere la
+      validación heurística de "parece modelo" (ver es_candidato_modelo_valido).
+      Se recorta en el primer marcador de specs (CODIGO:, KVA, TOWER, etc.) y se
+      descarta si es puro número, demasiado largo, demasiadas palabras, una
+      unidad técnica o una marca conocida del maestro. Si ningún bloque parece
+      un modelo, devuelve None (mejor vacío que ruido).
+    - No aplica validaciones de "marca válida" ni descarta S/M en producto_texto:
+      es una extracción posicional pura, independiente de `extraer_marca`.
     """
     if not desc_1_clean:
         return None, None
@@ -195,7 +275,16 @@ def extraer_producto_y_modelo_desc1(desc_1_clean: str):
     partes = [p.strip() for p in desc_1_clean.split(',') if p.strip()]
 
     producto_texto = partes[0] if len(partes) >= 1 else None
-    modelo_serie = ", ".join(partes[2:]) if len(partes) >= 3 else None
+
+    # Modelo/serie: escaneamos los bloques desde la posición 3 y tomamos el
+    # PRIMERO que parezca un modelo (recortado y validado). No unimos todos
+    # los bloques restantes: eso arrastra specs y descripciones enteras.
+    modelo_serie = None
+    for bloque in partes[2:]:
+        candidato = _recortar_candidato_modelo(bloque)
+        if es_candidato_modelo_valido(candidato, maestro):
+            modelo_serie = candidato
+            break
 
     return producto_texto, modelo_serie
 

@@ -134,8 +134,11 @@ def procesar_dataframe_dinamico(
             marca, fuente = extraer_marca(desc_clean, maestro, desc_1_clean=desc_1_clean)
 
             # 3b. Extracción posicional pura desde Descripcion 1 (SOLO esa columna):
-            #     posición 1 = producto y specs técnicas, posición 3 = modelo/serie comercial
-            producto_texto_desc1, modelo_serie_desc1 = extraer_producto_y_modelo_desc1(desc_1_clean)
+            #     posición 1 = producto y specs técnicas, posición 3 = modelo/serie
+            #     comercial (recortado y validado con heurísticas de "parece modelo").
+            producto_texto_desc1, modelo_serie_desc1 = extraer_producto_y_modelo_desc1(
+                desc_1_clean, maestro
+            )
 
             cat_vals = {
                 var: evaluar_caracteristica_categorica(desc_clean, var, maestro)
@@ -182,14 +185,12 @@ def procesar_dataframe_dinamico(
         fuente_marca = fuente if marca else "Default"
 
         res = {
-            "Producto_Declarado": val_principal_extracted,
             "Marca_Declarada": marca,
             var_principal: val_principal_extracted,
-            "Es_Producto_Principal": es_principal,
             "Marca_Extraida": marca_final,
             "Origen_Marca": fuente_marca,
             "Producto_Texto_Desc1": producto_texto_desc1,
-            "Modelo_Serie_Desc1": modelo_serie_desc1,
+            "Modelo_Serie": modelo_serie_desc1,
             "Rescatado_Por_IA": False,
             "_desc_clean_ia": desc_clean,  # columna técnica, se elimina al final
         }
@@ -256,12 +257,6 @@ def procesar_dataframe_dinamico(
             for var in variables_cat:
                 if fila.get(var) is None and valores_ia.get(var):
                     fila[var] = valores_ia[var]
-                    if var == var_principal:
-                        fila["Producto_Declarado"] = valores_ia[var]
-                        if valor_principal:
-                            fila["Es_Producto_Principal"] = (valores_ia[var] == valor_principal)
-                        else:
-                            fila["Es_Producto_Principal"] = True
                     rescato_algo = True
 
             for var in variables_pot:
@@ -275,15 +270,21 @@ def procesar_dataframe_dinamico(
     # Columnas que SIEMPRE se ocultan del resultado final (aunque se calculan
     # internamente): son recortes literales de la descripción original que
     # solo sirven de apoyo interno, no aportan valor al Excel de salida.
+    #
+    # NOTA: "Modelo_Serie" (el modelo saneado) SÍ se expone al usuario final;
+    # "Producto_Texto_Desc1" (el recorte literal de la posición 1) NO, porque
+    # duplica la descripción original y solo sirve de apoyo interno.
+    #
+    # NOTA SOBRE LA ROBUSTEZ ANTE UN MAESTRO SIN CONFIGURACIÓN:
+    # La variable principal (autoinferida por el loader si 0b_Config_Linea
+    # está vacía) SIEMPRE se expone. Antiguamente se ocultaba cuando faltaba
+    # VALOR_PRODUCTO_PRINCIPAL, lo que hacía depender el KPI de cobertura de
+    # tener configurado el maestro. Ahora aparece aunque la hoja de
+    # configuración esté completamente vacía, garantizando que la métrica de
+    # cobertura funcione siempre.
     columnas_ocultas = ["_desc_clean_ia", "Marca_Declarada",
-                        "Producto_Texto_Desc1", "Modelo_Serie_Desc1",
-                        "Rescatado_Por_IA"]
-
-    # Columnas que dependen de la variable principal (definida en 0b_Config_Linea).
-    # Solo se muestran si el usuario definió un VALOR_PRODUCTO_PRINCIPAL; si lo
-    # dejó vacío, estas columnas no aportan información útil y se ocultan.
-    if not valor_principal:
-        columnas_ocultas += ["Producto_Declarado", "Es_Producto_Principal", var_principal]
+                        "Producto_Texto_Desc1",
+                        "Rescatado_Por_IA", "Origen_Marca"]
 
     df_res = pd.DataFrame(resultados).drop(
         columns=columnas_ocultas,
