@@ -13,6 +13,11 @@ from src.ia_rescate import RescatadorIA
 from src.maestro_optimizer import construir_propuestas_aprendizaje
 
 
+def _tiene_contenido(texto) -> bool:
+    """True si el texto tiene al menos un carácter alfanumérico (no es solo signos)."""
+    return any(ch.isalnum() for ch in str(texto))
+
+
 def _fila_necesita_rescate(marca, cat_vals: dict, var_principal: str) -> bool:
     """
     Un registro es candidato a rescate por IA si la marca no fue resuelta
@@ -96,6 +101,19 @@ def procesar_dataframe_dinamico(
         )
     cols_indices = [df_raw.columns.get_loc(c) for c in cols_desc]
 
+    # Identifica la columna "Descripcion1" (versión corta de la descripción
+    # comercial, formato "producto, marca, modelo") y la "Descripcion Comercial"
+    # (mismo formato pero con más texto después del modelo). Para extraer el
+    # modelo se prefiere la versión corta; si está vacía, se cae a la comercial.
+    idx_desc1 = None
+    idx_comercial = None
+    for c in cols_desc:
+        c_upper = str(c).upper().replace(" ", "")
+        if idx_desc1 is None and c_upper in ("DESCRIPCION1", "DESC1", "DESCRIPCION_1"):
+            idx_desc1 = df_raw.columns.get_loc(c)
+        if idx_comercial is None and "COMERCIAL" in c_upper:
+            idx_comercial = df_raw.columns.get_loc(c)
+
     var_principal = maestro.variable_producto_principal
     valor_principal = maestro.valor_producto_principal
     variables_cat = maestro.variables_categoricas
@@ -127,17 +145,29 @@ def procesar_dataframe_dinamico(
         desc_1_raw = str(row[cols_indices[0]]) if cols_indices and pd.notna(row[cols_indices[0]]) else ""
         desc_1_clean = limpiar_texto(desc_1_raw)
 
-        clave_cache = (desc_clean, desc_1_clean)
+        # 2b. Para el MODELO se prefiere "Descripcion1" (versión corta de
+        #     "Descripcion Comercial", formato "producto, marca, modelo").
+        #     Si Descripcion1 está vacía o solo tiene signos (ej. "-"), se cae
+        #     a "Descripcion Comercial" (mismo formato pero con más texto).
+        desc_modelo_raw = ""
+        if idx_desc1 is not None and pd.notna(row[idx_desc1]):
+            desc_modelo_raw = str(row[idx_desc1])
+        if not _tiene_contenido(desc_modelo_raw) and idx_comercial is not None and pd.notna(row[idx_comercial]):
+            desc_modelo_raw = str(row[idx_comercial])
+        if not _tiene_contenido(desc_modelo_raw) and cols_indices:
+            desc_modelo_raw = desc_1_raw
+        desc_modelo_clean = limpiar_texto(desc_modelo_raw)
+
+        clave_cache = (desc_clean, desc_1_clean, desc_modelo_clean)
         calculado = cache_reglas.get(clave_cache)
         if calculado is None:
             # 3. Extraer marca pasando desc_clean (para dict/regex) y desc_1_clean (para posición 2 por coma)
             marca, fuente = extraer_marca(desc_clean, maestro, desc_1_clean=desc_1_clean)
 
-            # 3b. Extracción posicional pura desde Descripcion 1 (SOLO esa columna):
-            #     posición 1 = producto y specs técnicas, posición 3 = modelo/serie
-            #     comercial (recortado y validado con heurísticas de "parece modelo").
+            # 3b. Extracción posicional pura del modelo: se prefiere
+            #     "Descripcion1" (corta); si está vacía, "Descripcion Comercial".
             producto_texto_desc1, modelo_serie_desc1 = extraer_producto_y_modelo_desc1(
-                desc_1_clean, maestro
+                desc_modelo_clean, maestro
             )
 
             cat_vals = {

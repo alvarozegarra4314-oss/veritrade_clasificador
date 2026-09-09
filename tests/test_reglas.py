@@ -256,6 +256,69 @@ def test_config_vacio_no_genera_columna_nan():
 
 
 # ----------------------------------------------------------------------
+# Modelo: prefiere Descripcion1, cae a Descripcion Comercial si está vacía
+# ----------------------------------------------------------------------
+def _maestro_minimo():
+    import io
+
+    buf = io.BytesIO()
+    w = pd.ExcelWriter(buf, engine="openpyxl")
+    pd.DataFrame({
+        "PARAMETRO": ["VARIABLE_PRODUCTO_PRINCIPAL", "VALOR_PRODUCTO_PRINCIPAL"],
+        "VALOR": ["Tipo_Producto_Detallado", ""],
+    }).to_excel(w, sheet_name="0b_Config_Linea", index=False)
+    pd.DataFrame({"PATRON": ["APC"], "MARCA": ["APC"]}).to_excel(w, sheet_name="1_Marcas", index=False)
+    pd.DataFrame({
+        "Variable": ["Tipo_Producto_Detallado"],
+        "Valor_Resultado": ["UPS"],
+        "Prioridad": [1],
+        "PALABRA CLAVE": ["ups"],
+    }).to_excel(w, sheet_name="2_Caracteristicas", index=False)
+    w.close()
+    buf.seek(0)
+    return CargarMaestro(ruta_excel=buf)
+
+
+def test_modelo_prefiere_descripcion1():
+    # Descripcion1 tiene el modelo corto -> se usa Descripcion1, no la comercial
+    from src.pipeline import procesar_dataframe_dinamico
+
+    m = _maestro_minimo()
+    df = pd.DataFrame({
+        "Descripcion Comercial": ["UPS, APC, MODELO_LARGO CODIGO: X, SPECS EXTRA"],
+        "Descripcion1": ["UPS, APC, MODELO_CORTO"],
+    })
+    out = procesar_dataframe_dinamico(df, m)
+    assert out["Modelo_Serie"].iloc[0] == "MODELO_CORTO"
+
+
+def test_modelo_cae_a_descripcion_comercial_si_desc1_vacia():
+    # Descripcion1 vacía -> se cae a Descripcion Comercial
+    from src.pipeline import procesar_dataframe_dinamico
+
+    m = _maestro_minimo()
+    df = pd.DataFrame({
+        "Descripcion Comercial": ["UPS, APC, MODELO_COMERCIAL"],
+        "Descripcion1": [""],
+    })
+    out = procesar_dataframe_dinamico(df, m)
+    assert out["Modelo_Serie"].iloc[0] == "MODELO_COMERCIAL"
+
+
+def test_modelo_cae_a_comercial_si_desc1_solo_guiones():
+    # Descripcion1 con solo signos (ej. "-") se trata como vacía -> cae a Comercial
+    from src.pipeline import procesar_dataframe_dinamico
+
+    m = _maestro_minimo()
+    df = pd.DataFrame({
+        "Descripcion Comercial": ["UPS, APC, MODELO_COMERCIAL"],
+        "Descripcion1": ["-"],
+    })
+    out = procesar_dataframe_dinamico(df, m)
+    assert out["Modelo_Serie"].iloc[0] == "MODELO_COMERCIAL"
+
+
+# ----------------------------------------------------------------------
 # Operadores de condicionales (hoja 5_Condicionales)
 # ----------------------------------------------------------------------
 @pytest.mark.parametrize(
