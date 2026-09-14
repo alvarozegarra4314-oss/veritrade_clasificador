@@ -146,8 +146,17 @@ def extraer_marca(desc_clean: str, maestro, desc_1_clean: str = None):
         return None, None
 
     # 1. PRIORIDAD 1: Diccionario de Marcas (1_Marcas)
-    for patron, estandar in maestro.lista_marcas:
-        if re.search(fr'(?:^|(?<=\W)){re.escape(patron)}(?:$|(?=\W))', desc_clean):
+    patrones_marcas = getattr(maestro, "patrones_marcas", None)
+    if patrones_marcas is not None:
+        iterador_marcas = patrones_marcas
+    else:
+        iterador_marcas = (
+            (re.compile(fr'(?:^|(?<=\W)){re.escape(patron)}(?:$|(?=\W))', re.IGNORECASE), estandar)
+            for patron, estandar in maestro.lista_marcas
+        )
+
+    for regex_marca, estandar in iterador_marcas:
+        if regex_marca.search(desc_clean):
             return estandar, "Diccionario Marcas"
 
     # 2. PRIORIDAD 2: Reglas Regex (4_Tecnico_RegexMarca_NOEDIT)
@@ -236,8 +245,14 @@ def es_candidato_modelo_valido(candidato: str, maestro=None) -> bool:
 
     # 7. Es una marca conocida del maestro -> no es modelo
     if maestro is not None:
-        for patron, _ in maestro.lista_marcas:
-            if re.search(fr"(?:^|(?<=\W)){re.escape(patron)}(?:$|(?=\W))", cand_upper):
+        patrones_marcas = getattr(maestro, "patrones_marcas", None)
+        if patrones_marcas is None:
+            patrones_marcas = (
+                (re.compile(fr'(?:^|(?<=\W)){re.escape(patron)}(?:$|(?=\W))', re.IGNORECASE), estandar)
+                for patron, estandar in maestro.lista_marcas
+            )
+        for regex_marca, _ in patrones_marcas:
+            if regex_marca.search(cand_upper):
                 return False
 
     return True
@@ -420,43 +435,33 @@ def evaluar_caracteristica_categorica(desc_clean: str, var_name: str, maestro) -
                 return valor_resultado
 
     # ------------------------------------------------------------------
-    # PASADA 2: FLEXIBLE (fallback). Se ejecuta únicamente si la pasada
-    # estricta no encontró nada. Entran las claves que cumplan el criterio
-    # de longitud (frases de 3+ palabras, o palabras individuales de 3+
-    # caracteres). El patrón flexible NO exige límites de palabra.
+    # PASADA 2: FLEXIBLE (fallback), con regex precalculadas al cargar el
+    # maestro. El fallback dinámico conserva compatibilidad con maestros
+    # simulados o cargadores antiguos que no tengan esta colección.
     # ------------------------------------------------------------------
-    for regla in reglas:
-        # regla = (regex_comp, valor_resultado, palabras_clave)
-        if len(regla) < 3:
-            continue
-        palabras_clave = regla[2]
-        valor_resultado = regla[1]
+    reglas_flexibles = getattr(maestro, "dict_caracteristicas_flexibles", {}).get(var_name)
+    if reglas_flexibles is None:
+        reglas_flexibles = []
+        for regla in reglas:
+            if len(regla) < 3:
+                continue
+            claves_flexibles = []
+            for palabra_clave in regla[2]:
+                num_palabras = palabra_clave.count(r'\s+') + 1
+                if num_palabras >= 3:
+                    claves_flexibles.append(palabra_clave)
+                elif num_palabras == 1 and len(palabra_clave.replace(r'\s+', '')) >= 3:
+                    claves_flexibles.append(palabra_clave)
+            if claves_flexibles:
+                try:
+                    reglas_flexibles.append((
+                        re.compile(fr"({'|'.join(claves_flexibles)})", re.IGNORECASE),
+                        regla[1],
+                    ))
+                except re.error:
+                    continue
 
-        # Selecciona las claves que cumplen el criterio de longitud:
-        #  - Frases (contienen \s+): 3+ palabras.
-        #  - Palabra individual (sin \s+): 3+ caracteres.
-        claves_flexibles = []
-        for p in palabras_clave:
-            num_palabras = p.count(r'\s+') + 1
-            if num_palabras >= 3:
-                claves_flexibles.append(p)
-            elif num_palabras == 1:
-                # Longitud en caracteres, ignorando el escape de espacios.
-                longitud = len(p.replace(r'\s+', ''))
-                if longitud >= 3:
-                    claves_flexibles.append(p)
-
-        if not claves_flexibles:
-            continue
-
-        # Patrón flexible: sin límites de palabra al inicio ni al final.
-        # La clave puede estar pegada a números o letras.
-        patron_flexible = '|'.join(claves_flexibles)
-        try:
-            regex_flex = re.compile(fr'({patron_flexible})', re.IGNORECASE)
-        except re.error:
-            continue
-
+    for regex_flex, valor_resultado in reglas_flexibles:
         for match in regex_flex.finditer(desc_clean):
             pos_inicio = match.start()
             if not tiene_negacion_previa(desc_clean, pos_inicio):

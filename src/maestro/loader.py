@@ -69,10 +69,12 @@ class CargarMaestro:
         self.ruta_excel = ruta_excel
         self.config_linea = {}
         self.lista_marcas = []
+        self.patrones_marcas = []
         self.stopwords = set()
         self.patrones_regex = []
         self.dict_defaults = {True: "Marca Principal", False: "Marca Componentes"}
         self.dict_caracteristicas = {}
+        self.dict_caracteristicas_flexibles = {}
         self.dict_potencia = {}
         self.variables_categoricas = []
         self.variables_potencia = []
@@ -129,7 +131,16 @@ class CargarMaestro:
                     patron = limpiar_texto(str(row.get(col_pat, '')))
                     estandar = row.get(col_est, '')
                     if patron and pd.notna(estandar):
-                        self.lista_marcas.append((patron, str(estandar).strip()))
+                        estandar_texto = str(estandar).strip()
+                        self.lista_marcas.append((patron, estandar_texto))
+                        try:
+                            regex_marca = re.compile(
+                                fr'(?:^|(?<=\W)){re.escape(patron)}(?:$|(?=\W))',
+                                re.IGNORECASE,
+                            )
+                            self.patrones_marcas.append((regex_marca, estandar_texto))
+                        except re.error:
+                            continue
 
             # 2. Stopwords
             if s_stopwords:
@@ -183,6 +194,7 @@ class CargarMaestro:
                 for var, group in agrupado.groupby('Variable'):
                     self.variables_categoricas.append(var)
                     reglas_var = []
+                    reglas_flexibles_var = []
                     for _, fila in group.iterrows():
                         patron_str = str(fila['Patron_Busqueda']).strip()
                         resultado = fila['Valor_Resultado']
@@ -198,9 +210,27 @@ class CargarMaestro:
                                     p for p in patron_str.split('|') if p
                                 ]
                                 reglas_var.append((regex_compilado, resultado, palabras_clave))
+
+                                claves_flexibles = []
+                                for palabra_clave in palabras_clave:
+                                    num_palabras = palabra_clave.count(r'\s+') + 1
+                                    if num_palabras >= 3:
+                                        claves_flexibles.append(palabra_clave)
+                                    elif num_palabras == 1:
+                                        longitud = len(palabra_clave.replace(r'\s+', ''))
+                                        if longitud >= 3:
+                                            claves_flexibles.append(palabra_clave)
+
+                                if claves_flexibles:
+                                    regex_flexible = re.compile(
+                                        fr"({'|'.join(claves_flexibles)})",
+                                        re.IGNORECASE,
+                                    )
+                                    reglas_flexibles_var.append((regex_flexible, resultado))
                             except re.error:
                                 continue
                     self.dict_caracteristicas[var] = reglas_var
+                    self.dict_caracteristicas_flexibles[var] = reglas_flexibles_var
 
             # 6. Potencia y Métricas Numéricas
             if s_pot:
