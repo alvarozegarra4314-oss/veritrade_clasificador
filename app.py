@@ -119,8 +119,8 @@ def _traducir_progreso(texto: str) -> str:
 _selector_izq, _selector_der = st.columns([5, 1])
 with _selector_izq:
     st.markdown(
-        f'<div class="brand-mark"><span class="brand-icon">b</span>'
-        f'<span class="brand-name">{_t("Veritradx")}</span></div>',
+        f'<div class="brand-mark"><span class="brand-icon"><span class="lg-l"></span></span>'
+        f'<span class="brand-name">Legrand</span></div>',
         unsafe_allow_html=True,
     )
 with _selector_der:
@@ -194,7 +194,10 @@ st.markdown("""
 
     /* Identidad de marca */
     .brand-mark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: #162322; }
-    .brand-icon { width: 36px; height: 36px; border-radius: 10px; background: #197a5a; color: white; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem; box-shadow: 0 2px 6px rgba(25,122,90,.2); }
+    .brand-icon { position: relative; width: 36px; height: 36px; border-radius: 9px; background: #197a5a; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(25,122,90,.25); }
+    .brand-icon .lg-l { position: relative; width: 18px; height: 18px; }
+    .brand-icon .lg-l::before { content: ""; position: absolute; left: 0; top: 0; width: 6px; height: 18px; background: #fff; border-radius: 1.5px; }
+    .brand-icon .lg-l::after { content: ""; position: absolute; left: 0; bottom: 0; width: 18px; height: 6px; background: #fff; border-radius: 1.5px; }
     .brand-name { font-weight: 700; font-size: .95rem; }
 
     /* Hero */
