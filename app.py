@@ -74,6 +74,7 @@ _TRADUCCIONES = {
         "Pendientes de revisión": "Needs review",
         "Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas.": "Rows where the engine identified the product type (UPS, battery, switch, etc.). Does not include brand or technical characteristics.",
         "Filas sin producto ni marca identificados (ambos faltan). Requieren revisión manual.": "Rows with neither product nor brand identified (both missing). Require manual review.",
+        "Complemento de la clasificación completada: celdas de características sin identificar. Requieren revisión.": "Complement of classification completed: characteristic cells not identified. Require review.",
         "Identificación global de características": "Overall characteristic identification",
         "Clasificación completada": "Classification completed",
         "Reglas": "Rules",
@@ -925,7 +926,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         # % de celdas llenas en las columnas de características de 2_Caracteristicas
         # (tipo producto, características técnicas, etc.). La marca se excluye
         # porque se mide aparte (caso distinto).
-        pendientes = kpis.get("pendientes", 0)
         df_res = st.session_state.df_resultado
         vars_cat = st.session_state.get("variables_categoricas", [])
         cols_caract = [c for c in vars_cat if c in df_res.columns]
@@ -976,8 +976,8 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             m2.metric(_t("Marcas únicas"), f"{n_marcas_unicas:,}")
             m3.metric(
                 _t("Pendientes de revisión"),
-                f"{pendientes / total:.1%}",
-                help=_t("Filas sin producto ni marca identificados (ambos faltan). Requieren revisión manual."),
+                f"{1 - pct_completado:.1%}",
+                help=_t("Complemento de la clasificación completada: celdas de características sin identificar. Requieren revisión."),
             )
 
         if kpis.get("errores", 0) > 0:
