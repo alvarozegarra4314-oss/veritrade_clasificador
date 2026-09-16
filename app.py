@@ -75,6 +75,7 @@ _TRADUCCIONES = {
         "Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas.": "Rows where the engine identified the product type (UPS, battery, switch, etc.). Does not include brand or technical characteristics.",
         "Filas sin producto ni marca identificados (ambos faltan). Requieren revisión manual.": "Rows with neither product nor brand identified (both missing). Require manual review.",
         "Identificación global de características": "Overall characteristic identification",
+        "Clasificación completada": "Classification completed",
         "Reglas": "Rules",
         "✅ Completado · Solo reglas deterministas": "✅ Completed · Deterministic rules only",
         "Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes).": "Number of distinct brands detected (excluding generic, no-brand, and component brands).",
@@ -953,34 +954,23 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
         st.write("")
 
-        # ---- Bloque 2: Identificación global de características ----
-        vars_cat = st.session_state.get("variables_categoricas", [])
-        var_principal = st.session_state.get("var_principal_nombre", "")
-        cols_caract = [c for c in vars_cat if c != var_principal and c in df_res.columns]
-        if not cols_caract:
-            cols_caract = [c for c in vars_cat if c in df_res.columns]
+        # ---- Bloque 2: Barra de clasificación completada (complemento de pendientes) ----
+        pct_completado = 1 - (pendientes / total)
 
-        if cols_caract:
-            n_caract = len(cols_caract)
-            total_general = n_caract * total
-            conteos_caract = df_res[cols_caract].notna().sum()
-            no_identificadas = sum(int(total - conteos_caract[var]) for var in cols_caract)
-            pct_total_identificado = 1 - (no_identificadas / max(total_general, 1))
-
-            st.markdown(
-                f"""
-                <div class="kpi-bar">
-                  <div class="kpi-bar-head">
-                    <span class="kpi-bar-label">{_t("Identificación global de características")}</span>
-                    <span class="kpi-bar-value">{pct_total_identificado:.1%}</span>
-                  </div>
-                  <div class="kpi-bar-track">
-                    <div class="kpi-bar-fill" style="width: {pct_total_identificado * 100:.1f}%"></div>
-                  </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        st.markdown(
+            f"""
+            <div class="kpi-bar">
+              <div class="kpi-bar-head">
+                <span class="kpi-bar-label">{_t("Clasificación completada")}</span>
+                <span class="kpi-bar-value">{pct_completado:.1%}</span>
+              </div>
+              <div class="kpi-bar-track">
+                <div class="kpi-bar-fill" style="width: {pct_completado * 100:.1f}%"></div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         st.write("")
 
