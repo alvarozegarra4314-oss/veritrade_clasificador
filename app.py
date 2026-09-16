@@ -78,6 +78,8 @@ _TRADUCCIONES = {
         "Pendientes de revisión": "Needs review",
         "Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas.": "Rows where the engine identified the product type (UPS, battery, switch, etc.). Does not include brand or technical characteristics.",
         "🏷️ Características identificadas": "🏷️ Identified characteristics",
+        "Identificación global de características": "Overall characteristic identification",
+        "Porcentaje de celdas de características identificadas sobre el total (características × filas).": "Percentage of characteristic cells identified out of the total (characteristics × rows).",
         "Reglas": "Rules",
         "✅ Completado · Solo reglas deterministas": "✅ Completed · Deterministic rules only",
         "Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.).": "Percentage of rows where the engine identified the product type (UPS, switch, battery, etc.).",
@@ -959,7 +961,24 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
         if cols_caract:
             st.markdown(f"#### {_t('🏷️ Características identificadas')}")
+
+            # Métrica global: % de celdas de características identificadas.
+            # total_general = nº características × total de filas.
+            # no_identificadas = suma de filas sin valor en cada característica.
+            # total_identificado = 1 - (no_identificadas / total_general).
+            n_caract = len(cols_caract)
+            total_general = n_caract * total
             conteos_caract = df_res[cols_caract].notna().sum()
+            no_identificadas = sum(int(total - conteos_caract[var]) for var in cols_caract)
+            pct_total_identificado = 1 - (no_identificadas / max(total_general, 1))
+
+            st.metric(
+                _t("Identificación global de características"),
+                f"{pct_total_identificado:.1%}",
+                help=_t("Porcentaje de celdas de características identificadas sobre el total (características × filas)."),
+            )
+
+            # Desglose por característica
             cols_metricas = st.columns(len(cols_caract))
             for col_metrica, var in zip(cols_metricas, cols_caract):
                 n_coinc = int(conteos_caract[var])
