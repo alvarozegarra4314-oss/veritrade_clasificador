@@ -158,6 +158,11 @@ st.markdown("""
         font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
     }
 
+    /* Restaurar la fuente de iconos Material (no debe heredar Inter) */
+    [data-testid="stIconMaterial"] {
+        font-family: "Material Symbols Rounded" !important;
+    }
+
     /* Estilizar el botón principal de procesar */
     .stButton>button[kind="primary"],
     div[data-testid="stBaseButton-primary"] {
@@ -186,11 +191,11 @@ st.markdown("""
     div[data-testid="stFileUploader"] {
         margin: 10px 0 14px;
         padding: 0;
-        overflow: hidden;
     }
     div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
         min-height: 76px;
-        overflow: hidden;
+        border: 1px dashed rgba(49, 51, 63, 0.25);
+        border-radius: 0.5rem;
     }
 
     /* Barra llamativa de identificación global */
