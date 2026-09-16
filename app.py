@@ -41,8 +41,6 @@ _TRADUCCIONES = {
         "columnas": "columns",
         "Columnas de descripción detectadas": "Description columns detected",
         "Maestro": "Rulebook",
-        "Línea": "Line",
-        "Reglas activas": "Active rules",
         "Fase 1/2 · Reglas": "Phase 1/2 · Rules",
         "Fase 2/2 · IA": "Phase 2/2 · AI",
         "Preparando procesamiento...": "Preparing processing...",
@@ -142,6 +140,22 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="google.generat
 # CSS personalizado para emular el diseño web (Botón principal grande y métricas con fondo)
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    /* Tipografía uniforme en toda la app (misma familia que el título) */
+    html, body, [class*="css"], [data-testid="stAppViewContainer"],
+    [data-testid="stHeader"], [data-testid="stSidebar"],
+    .stMarkdown, .stCaption, .stSubheader, .stTitle, .stHeading,
+    div[data-testid="stMetric"], div[data-testid="stMetricLabel"],
+    div[data-testid="stMetricValue"], .stButton, .stDownloadButton,
+    .stSelectbox, .stFileUploader, .stProgress, .stAlert, .stTabs, .stTab,
+    h1, h2, h3, h4, h5, h6, [data-testid="stHeading"] h1,
+    [data-testid="stHeading"] h2, [data-testid="stHeading"] h3,
+    [data-testid="stHeading"] h4, [data-testid="stHeading"] h5,
+    [data-testid="stHeading"] h6 {
+        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+    }
+
     /* Estilizar el botón principal de procesar */
     .stButton>button[kind="primary"],
     div[data-testid="stBaseButton-primary"] {
@@ -523,7 +537,6 @@ with tab_clasificar:
                 try:
                     maestro_info = CargarMaestro(ruta_excel=BytesIO(maestro_bytes))
                     linea_detectada = maestro_info.config_linea.get("LINEA_PRODUCTO", "Producto")
-                    n_cond = len(getattr(maestro_info, "condicionales", []))
                     st.session_state.linea_detectada = linea_detectada
                     # Guardamos la variable principal y su valor para poder
                     # mostrarlos con nombre real en los KPIs de resultados.
@@ -534,7 +547,7 @@ with tab_clasificar:
                     # "característica identificada" en los resultados.
                     st.session_state.variables_categoricas = list(getattr(maestro_info, "variables_categoricas", []))
                     st.session_state.variables_potencia = list(getattr(maestro_info, "variables_potencia", []))
-                    st.success(f"✅ **{_t('Maestro')}:** {maestro_nombre} | **{_t('Línea')}:** {linea_detectada} | **{_t('Reglas activas')}:** {n_cond}")
+                    st.success(f"✅ **{_t('Maestro')}:** {maestro_nombre}")
                 except Exception as e:
                     st.warning(_tf("Error al leer el maestro: {}", e))
             else:
@@ -723,11 +736,11 @@ if procesar:
                     pct = min(i / total, 1.0)
                     if fase == "reglas":
                         if _usar_ia:
-                            txt = f"Fase 1/2 · Reglas: {i:,} de {total:,} filas"
+                            txt = f"Fase 1/2 · Reglas: {i:,} de {total:,} filas ({pct:.1%})"
                         else:
-                            txt = f"Reglas: {i:,} de {total:,} filas"
+                            txt = f"Reglas: {i:,} de {total:,} filas ({pct:.1%})"
                     else:
-                        txt = f"Fase 2/2 · IA: {i:,} de {total:,} descripciones"
+                        txt = f"Fase 2/2 · IA: {i:,} de {total:,} descripciones ({pct:.1%})"
                     _shared["progress_pct"] = pct
                     _shared["progress_text"] = txt
 
