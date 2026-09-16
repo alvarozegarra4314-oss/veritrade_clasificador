@@ -921,9 +921,28 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         total = max(kpis.get("total", 1), 1)
         usar_ia = st.session_state.get("_usar_ia", False)
 
-        # ---- Bloque 1: KPIs principales ----
+        # ---- Bloque 1: Barra de clasificación completada (complemento de pendientes) ----
         pendientes = kpis.get("pendientes", 0)
+        pct_completado = 1 - (pendientes / total)
 
+        st.markdown(
+            f"""
+            <div class="kpi-bar">
+              <div class="kpi-bar-head">
+                <span class="kpi-bar-label">{_t("Clasificación completada")}</span>
+                <span class="kpi-bar-value">{pct_completado:.1%}</span>
+              </div>
+              <div class="kpi-bar-track">
+                <div class="kpi-bar-fill" style="width: {pct_completado * 100:.1f}%"></div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.write("")
+
+        # ---- Bloque 2: KPIs principales ----
         # Marcas únicas reales (excluye genéricas, S/M y marca de componentes)
         df_res = st.session_state.df_resultado
         if "Marca_Extraida" in df_res.columns:
@@ -951,26 +970,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
         if kpis.get("errores", 0) > 0:
             st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
-
-        st.write("")
-
-        # ---- Bloque 2: Barra de clasificación completada (complemento de pendientes) ----
-        pct_completado = 1 - (pendientes / total)
-
-        st.markdown(
-            f"""
-            <div class="kpi-bar">
-              <div class="kpi-bar-head">
-                <span class="kpi-bar-label">{_t("Clasificación completada")}</span>
-                <span class="kpi-bar-value">{pct_completado:.1%}</span>
-              </div>
-              <div class="kpi-bar-track">
-                <div class="kpi-bar-fill" style="width: {pct_completado * 100:.1f}%"></div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
         st.write("")
 
