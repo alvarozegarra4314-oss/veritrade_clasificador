@@ -185,6 +185,11 @@ st.markdown("""
         border-radius: 0.5rem;
         box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.25rem !important;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+    }
     /* Barra de progreso de procesamiento más gruesa */
     div[data-testid="stProgress"] > div {
         height: 1rem;
@@ -975,8 +980,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                 anos_texto = _t("No disponible")
             elif n_anos == 1:
                 anos_texto = str(anos_unicos[0])
-            elif anos_unicos == list(range(anos_unicos[0], anos_unicos[-1] + 1)):
-                anos_texto = f"{anos_unicos[0]}–{anos_unicos[-1]}"
             else:
                 anos_texto = ", ".join(str(a) for a in anos_unicos)
         else:
@@ -990,13 +993,13 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             m2.metric(_t("Rescatados IA"), f"{kpis.get('rescatados', 0):,}")
             m3.metric(_t("Ahorro Caché"), f"{kpis.get('cache', 0):,}")
             m4.metric(_t("Nuevas Reglas"), f"+{kpis.get('nuevas', 0)}")
-            m5.metric(_t("Años procesados"), f"{n_anos}",
+            m5.metric(_t("Años procesados"), anos_texto,
                       help=_t("Años con datos: {} ").format(", ".join(str(a) for a in anos_unicos) if n_anos else _t("No disponible")))
         else:
             m1, m2, m3, m4 = st.columns(4)
             m1.metric(_t("Total Filas"), f"{total:,}")
             m2.metric(_t("Marcas únicas"), f"{n_marcas_unicas:,}")
-            m3.metric(_t("Años procesados"), f"{n_anos}",
+            m3.metric(_t("Años procesados"), anos_texto,
                       help=_t("Años con datos: {} ").format(", ".join(str(a) for a in anos_unicos) if n_anos else _t("No disponible")))
             m4.metric(
                 _t("Pendientes de revisión"),
