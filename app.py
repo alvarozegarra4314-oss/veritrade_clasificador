@@ -35,7 +35,6 @@ _TRADUCCIONES = {
         "⚠️ Se detectó que los resultados no están disponibles. Por favor, recarga la página o vuelve a procesar.": "⚠️ Results are unavailable. Please reload the page or run the classification again.",
         "Reglas deterministas": "Deterministic rules",
         "Error al leer el maestro: {}": "Error reading the rulebook: {}",
-        "Maestro Optimizado (Sin aprendizajes nuevos)": "Optimized Rulebook (No New Learnings)",
         "Generando Excel… Esto puede tardar unos segundos para archivos grandes.": "Generating Excel... This may take a few seconds for large files.",
         "Hoja": "Sheet",
         "filas": "rows",
@@ -80,7 +79,6 @@ _TRADUCCIONES = {
         "Reglas": "Rules",
         "✅ Completado · Solo reglas deterministas": "✅ Completed · Deterministic rules only",
         "Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes).": "Number of distinct brands detected (excluding generic, no-brand, and component brands).",
-        "Maestro Optimizado (Sin aprendizajes nuevos)": "Optimized Rulebook (No New Learnings)",
         "Generando Excel… Esto puede tardar unos segundos para archivos grandes.": "Generating Excel... This may take a few seconds for large files.",
         "Veritrade": "Veritrade",
         "Clasificación automática de importaciones": "Automated import classification",
@@ -969,11 +967,11 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                     width="stretch",
                     key="btn_descarga_maestro",
                 )
-            else:
-                st.button(_t("Maestro Optimizado (Sin aprendizajes nuevos)"), disabled=True, width="stretch")
 
         with d2:
             if st.session_state.df_export_data is not None:
+                if st.session_state.pop("excel_listo", False):
+                    st.success(_t("✅ Excel generado. Usa el botón de descarga abajo."))
                 st.download_button(
                     label=_t("📥 Descargar Resultado (Excel)"),
                     data=st.session_state.df_export_data,
@@ -997,7 +995,8 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                             st.session_state.get("hoja_origen", ""),
                             st.session_state.get("modelo_ia_usado", ""),
                         )
-                    st.success(_t("✅ Excel generado. Usa el botón de descarga abajo."))
+                    st.session_state.excel_listo = True
+                    st.rerun()
 
 # =====================================================================
 # SECCIÓN 5: CREAR MAESTRO (DENTRO DEL TAB CREAR)
