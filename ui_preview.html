@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Preview | Veritrade Classification</title>
+  <style>
+    :root {
+      --ink: #162322;
+      --muted: #63706d;
+      --paper: #f6f8f5;
+      --surface: #ffffff;
+      --line: #dfe7e2;
+      --green: #197a5a;
+      --green-dark: #12563f;
+      --mint: #e2f1e9;
+      --yellow: #f2b84b;
+      --red: #b44d45;
+      --shadow: 0 18px 50px rgba(22, 35, 34, .08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--paper); }
+    .app-shell { min-height: 100vh; background: radial-gradient(circle at 8% 0%, #e8f3ed 0, transparent 28rem), var(--paper); }
+    .topbar { max-width: 1440px; margin: auto; padding: 24px 42px 0; display: flex; justify-content: space-between; align-items: center; }
+    .brand-mark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
+    .brand-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--green); color: white; display: grid; place-items: center; font: 800 1rem/1 'Inter', sans-serif; letter-spacing: -.02em; box-shadow: 0 2px 6px rgba(25,122,90,.2); }
+    .brand-name { font: 700 .95rem/1 'Inter', sans-serif; }
+    .language { border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; background: rgba(255,255,255,.8); color: var(--ink); font-weight: 650; cursor: pointer; font-size: .85rem; }
+    main { max-width: 1440px; margin: auto; padding: 20px 42px 64px; }
+    .hero { display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 32px; padding: 28px 0 38px; }
+    .hero-main { max-width: 780px; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 7px; background: var(--mint); border: 1px solid #c0e4d0; color: var(--green-dark); text-transform: uppercase; letter-spacing: .1em; font-size: .72rem; font-weight: 800; padding: 5px 11px; border-radius: 999px; margin-bottom: 14px; }
+    .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+    h1 { margin: 0 0 14px; font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.02; letter-spacing: -.055em; max-width: 720px; }
+    h1 .hl { color: var(--green); }
+    .hero-benefits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+    .hero-benefit { display: flex; align-items: start; gap: 8px; font-size: .84rem; line-height: 1.4; color: var(--muted); }
+    .hero-benefit i { flex-shrink: 0; margin-top: 1px; font-style: normal; }
+    .hero-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; padding-top: 8px; }
+    .status-badge { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; border: 1px solid #bbdfcc; background: var(--mint); color: var(--green-dark); border-radius: 999px; padding: 9px 13px; font-weight: 750; font-size: .82rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+    .quick-start { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: .82rem; }
+    .quick-start-arrow { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background: white; place-items: center; font-size: .7rem; animation: bounce 1.6s infinite; }
+    @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; align-items: start; }
+    .content { min-width: 0; }
+    .section-card, .results, .insight-panel { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 14px; }
+    .section-card { padding: 24px; }
+    .section-heading { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+    h2, h3 { margin: 0; letter-spacing: -.025em; }
+    h2 { font-size: 1.25rem; }
+    h3 { font-size: 1rem; }
+    .section-number { color: var(--green); font: 800 1.15rem/1 Georgia, serif; }
+    .step-hint { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .78rem; font-weight: 700; }
+    .step-hint b { color: var(--green); font-size: .95rem; }
+    .section-caption { margin: 6px 0 0; color: var(--muted); font-size: .91rem; line-height: 1.5; }
+    .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .dropzone { border: 1.5px dashed #a9c7b8; background: #fbfdfb; border-radius: 11px; min-height: 150px; display: grid; place-items: center; text-align: center; padding: 20px; transition: .2s ease; }
+    .dropzone:hover { border-color: var(--green); background: #f3faf6; transform: translateY(-2px); }
+    .drop-icon { font-size: 1.8rem; margin-bottom: 8px; }
+    .dropzone strong { display: block; font-size: .95rem; }
+    .dropzone span { display: block; color: var(--muted); font-size: .82rem; margin-top: 6px; }
+    .file-state { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 13px; font-size: .85rem; color: var(--muted); }
+    .file-state b { color: var(--ink); }
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+    label { display: block; color: var(--muted); font-size: .8rem; font-weight: 750; margin-bottom: 7px; }
+    select { width: 100%; background: white; border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; color: var(--ink); font: inherit; }
+    .primary-btn { width: 100%; margin-top: 22px; padding: 15px 18px; border: 0; border-radius: 9px; background: var(--green); color: white; font: 800 .98rem inherit; cursor: pointer; box-shadow: 0 8px 18px rgba(25, 122, 90, .2); }
+    .primary-btn:hover { background: var(--green-dark); }
+    .results { margin-top: 22px; padding: 24px; background: #f1faf4; border-color: #c2e3ce; }
+    .results-header { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 20px; }
+    .success { color: var(--green-dark); font-weight: 800; font-size: .84rem; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .metric { background: white; border: 1px solid #d8e8dc; border-radius: 10px; padding: 15px; }
+    .metric small { display: block; color: var(--muted); font-size: .77rem; line-height: 1.3; }
+    .metric strong { display: block; margin-top: 8px; font-size: 1.5rem; letter-spacing: -.04em; }
+    .coverage { margin-top: 22px; }
+    .coverage-line { display: flex; justify-content: space-between; gap: 20px; color: var(--muted); font-size: .84rem; }
+    .bar { height: 10px; background: #dce9df; border-radius: 999px; overflow: hidden; margin-top: 9px; }
+    .bar i { display: block; width: 82%; height: 100%; background: var(--green); border-radius: inherit; }
+    .result-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 22px; }
+    .secondary-btn { border: 1px solid #a9cdb5; border-radius: 8px; padding: 12px; background: white; color: var(--green-dark); font-weight: 750; cursor: pointer; }
+    .insight-panel { position: sticky; top: 20px; padding: 20px; background: #182d2b; color: #e8f4ef; box-shadow: 0 20px 50px rgba(16, 42, 37, .2); }
+    .insight-panel h2 { font-size: 1.05rem; }
+    .insight-panel p { color: #b9d0c7; font-size: .85rem; line-height: 1.55; }
+    .insight-panel ul { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 13px; }
+    .insight-panel li { border-top: 1px solid rgba(220, 244, 233, .15); padding-top: 12px; font-size: .84rem; line-height: 1.45; }
+    .priority { display: inline-block; color: #ffd27c; font-size: .7rem; font-weight: 850; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }
+    .toast { position: fixed; right: 24px; bottom: 24px; background: #162d2a; color: white; padding: 12px 16px; border-radius: 9px; box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); transition: .2s ease; pointer-events: none; font-size: .86rem; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    @media (max-width: 940px) { .workspace { grid-template-columns: 1fr; } .insight-panel { position: static; } }
+    @media (max-width: 940px) { .hero-benefits { grid-template-columns: 1fr; } .hero { grid-template-columns: 1fr; } .hero-right { flex-direction: row; align-items: center; padding-top: 0; } }
+    @media (max-width: 640px) { .topbar, main { padding-left: 18px; padding-right: 18px; } .hero { grid-template-columns: 1fr; } .hero-right { justify-content: start; } .upload-grid, .controls, .result-actions { grid-template-columns: 1fr; } .metrics { grid-template-columns: 1fr 1fr; } h1 { font-size: 2.3rem; } }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="topbar"><a class="brand-mark" href="#"><span class="brand-icon">V</span><span class="brand-name" data-es="Veritrade" data-en="Veritrade">Veritrade</span></a><select class="language" id="language" aria-label="Language / Idioma"><option value="es">Español</option><option value="en">English</option></select></div>
+    <main>
+      <section class="hero">
+        <div class="hero-main">
+          <div class="eyebrow"><i class="eyebrow-dot"></i><span data-es="Clasificación automática de importaciones" data-en="Automated import classification">Clasificación automática de importaciones</span></div>
+          <h1 data-es="De descripciones libres a datos clasificados" data-en="From free-text descriptions to classified data">De descripciones libres <span class="hl">a datos clasificados</span></h1>
+          <div class="hero-benefits">
+            <div class="hero-benefit"><i>⚡</i><span data-es="Miles de filas procesadas en segundos" data-en="Thousands of rows processed in seconds">Miles de filas procesadas en segundos</span></div>
+            <div class="hero-benefit"><i>🎯</i><span data-es="Reglas del maestro aplicadas automáticamente" data-en="Rulebook rules applied automatically">Reglas del maestro aplicadas automáticamente</span></div>
+            <div class="hero-benefit"><i>📥</i><span data-es="Excel listo para descargar al instante" data-en="Excel ready to download instantly">Excel listo para descargar al instante</span></div>
+          </div>
+        </div>
+        <div class="hero-right">
+          <div class="status-badge"><i class="dot"></i><span data-es="Motor listo" data-en="Engine ready">Motor listo</span></div>
+          <div class="quick-start"><span data-es="Sube tus archivos para empezar" data-en="Upload your files to start">Sube tus archivos para empezar</span><span class="quick-start-arrow">↓</span></div>
+        </div>
+      </section>
+      <div class="workspace">
+        <div class="content">
+          <section class="section-card">
+            <div class="section-heading"><div><h2><span class="section-number">01</span> <span data-es="Archivos de entrada" data-en="Input files">Archivos de entrada</span></h2><p class="section-caption" data-es="Carga el export de Veritrade y el maestro de reglas de la línea. Ambos archivos son .xlsx." data-en="Upload the Veritrade export and the product-line rulebook. Both files are .xlsx.">Carga el export de Veritrade y el maestro de reglas de la línea. Ambos archivos son .xlsx.</p></div><div class="step-hint"><b>1</b><span data-es="de 3 pasos" data-en="of 3 steps">de 3 pasos</span></div></div>
+            <div class="upload-grid">
+              <div class="dropzone" data-file="Veritrade_2025.xlsx"><div><div class="drop-icon">📄</div><strong data-es="Archivo de datos crudos" data-en="Raw data file">Archivo de datos crudos</strong><span data-es="Arrastra tu archivo .xlsx aquí" data-en="Drop your .xlsx file here">Arrastra tu archivo .xlsx aquí</span><div class="file-state">✓ <b>Veritrade_2025.xlsx</b><br>9,970 rows · 12 columns</div></div></div>
+              <div class="dropzone" data-file="Maestro_UPS_v2.xlsx"><div><div class="drop-icon">🧭</div><strong data-es="Maestro de reglas" data-en="Rulebook">Maestro de reglas</strong><span data-es="Arrastra tu archivo maestro .xlsx aquí" data-en="Drop your rulebook .xlsx file here">Arrastra tu archivo maestro .xlsx aquí</span><div class="file-state">✓ <b>Maestro_UPS_v2.xlsx</b><br>UPS · 148 active rules</div></div></div>
+            </div>
+            <div class="controls"><div><label for="sheet" data-es="Hoja a procesar" data-en="Sheet to process">Hoja a procesar</label><select id="sheet"><option>Veritrade0924_0825</option><option>data</option></select></div><div><label for="mode" data-es="Motor de clasificación" data-en="Classification engine">Motor de clasificación</label><select id="mode"><option data-es="Reglas deterministas" data-en="Deterministic rules">Reglas deterministas</option><option data-es="Reglas + IA" data-en="Rules + AI">Reglas + IA</option></select></div></div>
+            <button class="primary-btn" id="process" data-es="▶ Ejecutar clasificación" data-en="▶ Run classification">▶ Ejecutar clasificación</button>
+          </section>
+          <section class="results">
+            <div class="results-header"><h2>📥 <span data-es="Resultados y descargas" data-en="Results and downloads">Resultados y descargas</span></h2><span class="success">✓ <span data-es="Proceso finalizado" data-en="Process completed">Proceso finalizado</span></span></div>
+            <div class="metrics"><div class="metric"><small data-es="Total de filas" data-en="Total rows">Total de filas</small><strong>9,970</strong></div><div class="metric"><small data-es="Producto identificado" data-en="Product identified">Producto identificado</small><strong>82.4%</strong></div><div class="metric"><small data-es="Marcas únicas" data-en="Unique brands">Marcas únicas</small><strong>27</strong></div><div class="metric"><small data-es="Pendientes de revisión" data-en="Needs review">Pendientes de revisión</small><strong>1,216</strong></div></div>
+            <div class="coverage"><div class="coverage-line"><span data-es="Cobertura de clasificación" data-en="Classification coverage">Cobertura de clasificación</span><b>8,214 / 9,970</b></div><div class="bar"><i></i></div></div>
+            <div class="result-actions"><button class="secondary-btn" data-es="🧠 Descargar maestro optimizado" data-en="🧠 Download optimized rulebook">🧠 Descargar maestro optimizado</button><button class="secondary-btn" data-es="📥 Descargar resultado Excel" data-en="📥 Download Excel result">📥 Descargar resultado Excel</button></div>
+          </section>
+        </div>
+        <aside class="insight-panel"><h2 data-es="Qué observar en esta vista" data-en="What to look for in this view">Qué observar en esta vista</h2><p data-es="Esta maqueta representa la pantalla actual, pero muestra resultados de ejemplo para evaluar la jerarquía visual." data-en="This mockup represents the current screen, but uses sample results so you can evaluate the visual hierarchy.">Esta maqueta representa la pantalla actual, pero muestra resultados de ejemplo para evaluar la jerarquía visual.</p><ul><li><span class="priority" data-es="Prioridad alta" data-en="High priority">Prioridad alta</span><br><span data-es="Separar claramente carga, configuración y resultados para que el flujo se lea de arriba hacia abajo." data-en="Separate upload, configuration, and results so the flow reads top to bottom.">Separar claramente carga, configuración y resultados para que el flujo se lea de arriba hacia abajo.</span></li><li><span class="priority" data-es="Prioridad media" data-en="Medium priority">Prioridad media</span><br><span data-es="Mostrar el estado de cada archivo con una etiqueta visual más evidente y errores cerca del archivo." data-en="Show each file's status with a more visible label and keep errors close to the file.">Mostrar el estado de cada archivo con una etiqueta visual más evidente y errores cerca del archivo.</span></li><li><span class="priority" data-es="Siguiente mejora" data-en="Next improvement">Siguiente mejora</span><br><span data-es="Añadir una tabla breve de ejemplos clasificados antes de descargar el Excel." data-en="Add a short classified-example table before downloading the Excel.">Añadir una tabla breve de ejemplos clasificados antes de descargar el Excel.</span></li></ul></aside>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script>
+    const language = document.querySelector('#language');
+    const toast = document.querySelector('#toast');
+    function setLanguage(lang) {
+      document.documentElement.lang = lang === 'en' ? 'en' : 'es';
+      document.querySelectorAll('[data-es]').forEach(el => { el.textContent = el.dataset[lang === 'en' ? 'en' : 'es']; });
+      document.querySelectorAll('option[data-es]').forEach(el => { el.textContent = el.dataset[lang === 'en' ? 'en' : 'es']; });
+    }
+    language.addEventListener('change', () => setLanguage(language.value));
+    document.querySelector('#process').addEventListener('click', () => {
+      toast.textContent = language.value === 'en' ? 'Preview only: no file was processed.' : 'Vista previa: no se procesó ningún archivo.';
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2600);
+    });
+    document.querySelectorAll('.secondary-btn').forEach(button => button.addEventListener('click', () => {
+      toast.textContent = language.value === 'en' ? 'Preview only: download is disabled.' : 'Vista previa: la descarga está desactivada.';
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2600);
+    }));
+  </script>
+</body>
+</html>

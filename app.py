@@ -78,6 +78,16 @@ _TRADUCCIONES = {
         "No hay características no técnicas configuradas en el maestro.": "No non-technical characteristics are configured in the rulebook.",
         "Maestro Optimizado (Sin aprendizajes nuevos)": "Optimized Rulebook (No New Learnings)",
         "Generando Excel… Esto puede tardar unos segundos para archivos grandes.": "Generating Excel... This may take a few seconds for large files.",
+        "Veritrade": "Veritrade",
+        "Clasificación automática de importaciones": "Automated import classification",
+        "De descripciones libres": "From free-text descriptions",
+        "a datos clasificados": "to classified data",
+        "Miles de filas procesadas en segundos": "Thousands of rows processed in seconds",
+        "Reglas del maestro aplicadas automáticamente": "Rulebook rules applied automatically",
+        "Excel listo para descargar al instante": "Excel ready to download instantly",
+        "Motor listo": "Engine ready",
+        "Sube tus archivos para empezar": "Upload your files to start",
+        "de 3 pasos": "of 3 steps",
     },
 }
 
@@ -107,7 +117,13 @@ def _traducir_progreso(texto: str) -> str:
     return _TRADUCCIONES["English"].get(traduccion, _t(traduccion))
 
 
-_selector_izq, _selector_der = st.columns([7, 1])
+_selector_izq, _selector_der = st.columns([5, 1])
+with _selector_izq:
+    st.markdown(
+        f'<div class="brand-mark"><span class="brand-icon">V</span>'
+        f'<span class="brand-name">{_t("Veritrade")}</span></div>',
+        unsafe_allow_html=True,
+    )
 with _selector_der:
     st.selectbox(
         "Language / Idioma",
@@ -137,6 +153,38 @@ st.markdown("""
         padding: 1rem;
         border-radius: 0.5rem;
         box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    }
+
+    /* Identidad de marca */
+    .brand-mark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: #162322; }
+    .brand-icon { width: 36px; height: 36px; border-radius: 10px; background: #197a5a; color: white; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem; box-shadow: 0 2px 6px rgba(25,122,90,.2); }
+    .brand-name { font-weight: 700; font-size: .95rem; }
+
+    /* Hero */
+    .hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; padding: 12px 0 8px; }
+    .hero-main { max-width: 780px; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 7px; background: #e2f1e9; border: 1px solid #c0e4d0; color: #12563f; text-transform: uppercase; letter-spacing: .1em; font-size: .72rem; font-weight: 800; padding: 5px 11px; border-radius: 999px; margin-bottom: 14px; }
+    .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: #197a5a; flex-shrink: 0; }
+    .hero h1 { margin: 0 0 14px; font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.02; letter-spacing: -.055em; color: #162322; }
+    .hero h1 .hl { color: #197a5a; }
+    .hero-benefits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+    .hero-benefit { display: flex; align-items: flex-start; gap: 8px; font-size: .84rem; line-height: 1.4; color: #63706d; }
+    .hero-benefit i { flex-shrink: 0; font-style: normal; }
+    .hero-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; padding-top: 8px; }
+    .status-badge { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; border: 1px solid #bbdfcc; background: #e2f1e9; color: #12563f; border-radius: 999px; padding: 9px 13px; font-weight: 750; font-size: .82rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #197a5a; flex-shrink: 0; }
+    .quick-start { display: inline-flex; align-items: center; gap: 8px; color: #63706d; font-size: .82rem; }
+    .quick-start-arrow { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; border: 1px solid #dfe7e2; background: white; align-items: center; justify-content: center; font-size: .7rem; animation: bounce 1.6s infinite; }
+    @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+
+    /* Indicador de pasos */
+    .step-hint { display: inline-flex; align-items: center; gap: 6px; color: #63706d; font-size: .78rem; font-weight: 700; }
+    .step-hint b { color: #197a5a; font-size: .95rem; }
+
+    @media (max-width: 768px) {
+        .hero { flex-direction: column; }
+        .hero-benefits { grid-template-columns: 1fr; }
+        .hero-right { align-items: flex-start; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -338,8 +386,26 @@ def _mensaje_columnas_no_reconocidas(columnas) -> str:
 # =====================================================================
 # ENCABEZADO
 # =====================================================================
-st.title(_t("🗂️ Clasificador de Importaciones — Veritrade"))
-st.markdown(_t("Sube tu archivo de importaciones y obtén la clasificación por producto y marca. **No necesitas saber de reglas:** la herramienta aplica el maestro de la línea automáticamente."))
+st.markdown(
+    f"""
+    <div class="hero">
+      <div class="hero-main">
+        <div class="eyebrow"><i class="eyebrow-dot"></i><span>{_t("Clasificación automática de importaciones")}</span></div>
+        <h1>{_t("De descripciones libres")} <span class="hl">{_t("a datos clasificados")}</span></h1>
+        <div class="hero-benefits">
+          <div class="hero-benefit"><i>⚡</i><span>{_t("Miles de filas procesadas en segundos")}</span></div>
+          <div class="hero-benefit"><i>🎯</i><span>{_t("Reglas del maestro aplicadas automáticamente")}</span></div>
+          <div class="hero-benefit"><i>📥</i><span>{_t("Excel listo para descargar al instante")}</span></div>
+        </div>
+      </div>
+      <div class="hero-right">
+        <div class="status-badge"><i class="dot"></i><span>{_t("Motor listo")}</span></div>
+        <div class="quick-start"><span>{_t("Sube tus archivos para empezar")}</span><span class="quick-start-arrow">↓</span></div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 st.write("") # Espaciador
 
 # =====================================================================
@@ -364,8 +430,15 @@ with tab_clasificar:
 
     with c_raw:
         with st.container(border=True):
-            st.subheader(_t("1. Archivo de Datos Crudos"))
-            st.caption(_t("Sube el archivo Excel con las descripciones a analizar."))
+            _col_titulo, _col_paso = st.columns([4, 1])
+            with _col_titulo:
+                st.subheader(_t("1. Archivo de Datos Crudos"))
+                st.caption(_t("Sube el archivo Excel con las descripciones a analizar."))
+            with _col_paso:
+                st.markdown(
+                    f'<div class="step-hint"><b>1</b><span>{_t("de 3 pasos")}</span></div>',
+                    unsafe_allow_html=True,
+                )
             archivo_raw = st.file_uploader(_t("Arrastra tu archivo .xlsx aquí"), type=["xlsx"], label_visibility="collapsed")
 
             if archivo_raw is not None:
@@ -418,8 +491,15 @@ with tab_clasificar:
 
     with c_maestro:
         with st.container(border=True):
-            st.subheader(_t("2. Maestro de Reglas"))
-            st.caption(_t("Usa siempre tu propio maestro .xlsx. La conexión local del proyecto ya no es necesaria."))
+            _col_titulo2, _col_paso2 = st.columns([4, 1])
+            with _col_titulo2:
+                st.subheader(_t("2. Maestro de Reglas"))
+                st.caption(_t("Usa siempre tu propio maestro .xlsx. La conexión local del proyecto ya no es necesaria."))
+            with _col_paso2:
+                st.markdown(
+                    f'<div class="step-hint"><b>2</b><span>{_t("de 3 pasos")}</span></div>',
+                    unsafe_allow_html=True,
+                )
 
             archivo_maestro_up = st.file_uploader(
                 _t("Arrastra tu archivo maestro .xlsx aquí"),
