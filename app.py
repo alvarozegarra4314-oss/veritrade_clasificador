@@ -73,6 +73,7 @@ _TRADUCCIONES = {
         "Marcas únicas": "Unique brands",
         "Pendientes de revisión": "Needs review",
         "Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas.": "Rows where the engine identified the product type (UPS, battery, switch, etc.). Does not include brand or technical characteristics.",
+        "Filas sin producto ni marca identificados (ambos faltan). Requieren revisión manual.": "Rows with neither product nor brand identified (both missing). Require manual review.",
         "Identificación global de características": "Overall characteristic identification",
         "Reglas": "Rules",
         "✅ Completado · Solo reglas deterministas": "✅ Completed · Deterministic rules only",
@@ -654,7 +655,7 @@ def _generar_excel_resultado(df_resultado, kpis, linea, archivo_origen, hoja_ori
         ("Con producto identificado", f"{kpis.get('con_producto', 0):,} ({_cobertura_pct})"),
         ("Sin producto identificado", f"{kpis.get('sin_producto', 0):,}"),
         ("Sin marca (genérica)", f"{kpis.get('sin_marca', 0):,}"),
-        ("Pendientes de revisión", f"{kpis.get('pendientes', 0):,}"),
+        ("Pendientes de revisión", f"{kpis.get('pendientes', 0):,} ({kpis.get('pendientes', 0) / max(_total_filas, 1):.1%})"),
         ("Rescatados por IA", f"{kpis.get('rescatados', 0):,}"),
         ("Resueltos desde caché IA (ahorro)", f"{kpis.get('cache', 0):,}"),
         ("Nuevas reglas aprendidas", f"+{kpis.get('nuevas', 0)}"),
@@ -797,11 +798,13 @@ if procesar:
                         _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER).sum()
                     )
 
+                # Pendientes de revisión = filas SIN producto Y SIN marca (ambos faltan)
                 _pend_mask = pd.Series(False, index=_df_resultado.index)
-                if _var_principal in _df_resultado:
-                    _pend_mask |= _df_resultado[_var_principal].isna()
-                if "Marca_Extraida" in _df_resultado:
-                    _pend_mask |= _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER)
+                if _var_principal in _df_resultado and "Marca_Extraida" in _df_resultado:
+                    _pend_mask = (
+                        _df_resultado[_var_principal].isna()
+                        & _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER)
+                    )
                 _kpis["pendientes"] = int(_pend_mask.sum())
 
                 if _rescatador is not None:
@@ -918,8 +921,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         usar_ia = st.session_state.get("_usar_ia", False)
 
         # ---- Bloque 1: KPIs principales ----
-        con_producto = kpis.get("con_producto", 0)
-        pct_con_producto = con_producto / total
         pendientes = kpis.get("pendientes", 0)
 
         # Marcas únicas reales (excluye genéricas, S/M y marca de componentes)
@@ -938,15 +939,14 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             m3.metric(_t("Ahorro Caché"), f"{kpis.get('cache', 0):,}")
             m4.metric(_t("Nuevas Reglas"), f"+{kpis.get('nuevas', 0)}")
         else:
-            m1, m2, m3, m4 = st.columns(4)
+            m1, m2, m3 = st.columns(3)
             m1.metric(_t("Total Filas"), f"{total:,}")
-            m2.metric(
-                _t("Producto identificado"),
-                f"{pct_con_producto:.1%}",
-                help=_t("Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas."),
+            m2.metric(_t("Marcas únicas"), f"{n_marcas_unicas:,}")
+            m3.metric(
+                _t("Pendientes de revisión"),
+                f"{pendientes / total:.1%}",
+                help=_t("Filas sin producto ni marca identificados (ambos faltan). Requieren revisión manual."),
             )
-            m3.metric(_t("Marcas únicas"), f"{n_marcas_unicas:,}")
-            m4.metric(_t("Pendientes de revisión"), f"{pendientes:,}")
 
         if kpis.get("errores", 0) > 0:
             st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
