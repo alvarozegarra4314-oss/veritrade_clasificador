@@ -52,7 +52,7 @@ _TRADUCCIONES = {
         "📥 Resultados y Descargas": "📥 Results and Downloads",
         "✅ Proceso Finalizado": "✅ Process Completed",
         "🎯 Cobertura de clasificación": "🎯 Classification coverage",
-        "🏷️ Marcas y características identificadas": "🏷️ Identified brands and characteristics",
+        "🏷️ Marcas identificadas": "🏷️ Identified brands",
         "🏷️ Marcas únicas identificadas": "🏷️ Unique brands identified",
         "🧠 Descargar Maestro Optimizado": "🧠 Download Optimized Rulebook",
         "📥 Descargar Resultado (Excel)": "📥 Download Result (Excel)",
@@ -72,19 +72,14 @@ _TRADUCCIONES = {
         "Ahorro Caché": "Cache Savings",
         "Nuevas Reglas": "New Rules",
         "Reglas deterministas": "Deterministic rules",
-        "Producto identificado: {} de {} filas ({})": "Product identified: {} of {} rows ({})",
         "Producto identificado": "Product identified",
         "Marcas únicas": "Unique brands",
         "Pendientes de revisión": "Needs review",
         "Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas.": "Rows where the engine identified the product type (UPS, battery, switch, etc.). Does not include brand or technical characteristics.",
-        "🏷️ Características identificadas": "🏷️ Identified characteristics",
         "Identificación global de características": "Overall characteristic identification",
-        "Porcentaje de celdas de características identificadas sobre el total (características × filas).": "Percentage of characteristic cells identified out of the total (characteristics × rows).",
         "Reglas": "Rules",
         "✅ Completado · Solo reglas deterministas": "✅ Completed · Deterministic rules only",
-        "Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.).": "Percentage of rows where the engine identified the product type (UPS, switch, battery, etc.).",
         "Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes).": "Number of distinct brands detected (excluding generic, no-brand, and component brands).",
-        "No hay características no técnicas configuradas en el maestro.": "No non-technical characteristics are configured in the rulebook.",
         "Maestro Optimizado (Sin aprendizajes nuevos)": "Optimized Rulebook (No New Learnings)",
         "Generando Excel… Esto puede tardar unos segundos para archivos grandes.": "Generating Excel... This may take a few seconds for large files.",
         "Veritrade": "Veritrade",
@@ -941,18 +936,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
         st.write("")
 
-        # ---- Bloque 2: Barra de cobertura (visual) ----
-        st.markdown(f"#### {_t('🎯 Cobertura de clasificación')}")
-        st.caption(_t("Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.)."))
-        st.progress(
-            min(pct_con_producto, 1.0),
-            text=_tf("Producto identificado: {} de {} filas ({})", f"{con_producto:,}", f"{total:,}", f"{pct_con_producto:.1%}"),
-        )
-
-        # ---- Bloque 3: % de coincidencia por característica ----
-        # Características no numéricas = variables categóricas del maestro
-        # (tipo de tecnología, fases, etc. — se excluyen las numéricas como
-        # amperaje, voltaje, kVA).
+        # ---- Bloque 2: Identificación global de características ----
         vars_cat = st.session_state.get("variables_categoricas", [])
         var_principal = st.session_state.get("var_principal_nombre", "")
         cols_caract = [c for c in vars_cat if c != var_principal and c in df_res.columns]
@@ -960,12 +944,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             cols_caract = [c for c in vars_cat if c in df_res.columns]
 
         if cols_caract:
-            st.markdown(f"#### {_t('🏷️ Características identificadas')}")
-
-            # Métrica global: % de celdas de características identificadas.
-            # total_general = nº características × total de filas.
-            # no_identificadas = suma de filas sin valor en cada característica.
-            # total_identificado = 1 - (no_identificadas / total_general).
             n_caract = len(cols_caract)
             total_general = n_caract * total
             conteos_caract = df_res[cols_caract].notna().sum()
@@ -975,21 +953,8 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             st.metric(
                 _t("Identificación global de características"),
                 f"{pct_total_identificado:.1%}",
-                help=_t("Porcentaje de celdas de características identificadas sobre el total (características × filas)."),
+                help=_tf("Celdas identificadas: {} de {} ({} características × {} filas)", f"{total_general - no_identificadas:,}", f"{total_general:,}", str(n_caract), f"{total:,}"),
             )
-
-            # Desglose por característica
-            cols_metricas = st.columns(len(cols_caract))
-            for col_metrica, var in zip(cols_metricas, cols_caract):
-                n_coinc = int(conteos_caract[var])
-                pct_coinc = n_coinc / total
-                col_metrica.metric(
-                    var,
-                    f"{pct_coinc:.1%}",
-                    help=f"{n_coinc:,} de {total:,} filas tienen esta característica identificada.",
-                )
-        else:
-            st.caption(_t("No hay características no técnicas configuradas en el maestro."))
 
         st.write("")
 
