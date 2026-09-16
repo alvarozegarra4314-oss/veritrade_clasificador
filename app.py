@@ -184,12 +184,13 @@ st.markdown("""
     }
     /* Evitar sobreposicionamiento de file uploaders */
     div[data-testid="stFileUploader"] {
-        margin: 4px 0 8px;
-        padding: 2px 0;
-        overflow: visible;
+        margin: 10px 0 14px;
+        padding: 0;
+        overflow: hidden;
     }
-    div[data-testid="stFileUploader"] [data-testid="stFileUploadDropzone"] {
-        min-height: 68px;
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
+        min-height: 76px;
+        overflow: hidden;
     }
 
     /* Barra llamativa de identificación global */
