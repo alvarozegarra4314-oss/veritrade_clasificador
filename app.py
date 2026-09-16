@@ -75,6 +75,9 @@ _TRADUCCIONES = {
         "Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas.": "Rows where the engine identified the product type (UPS, battery, switch, etc.). Does not include brand or technical characteristics.",
         "Filas sin producto ni marca identificados (ambos faltan). Requieren revisión manual.": "Rows with neither product nor brand identified (both missing). Require manual review.",
         "Complemento de la clasificación completada: celdas de características sin identificar. Requieren revisión.": "Complement of classification completed: characteristic cells not identified. Require review.",
+        "Años procesados": "Years processed",
+        "Años con datos: {} ": "Years with data: {} ",
+        "No disponible": "Not available",
         "Identificación global de características": "Overall characteristic identification",
         "Clasificación completada": "Classification completed",
         "Reglas": "Rules",
@@ -964,17 +967,38 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         else:
             n_marcas_unicas = 0
 
+        # Años con datos en el archivo (columna AÑO generada por agregar_columnas_fecha)
+        if "AÑO" in df_res.columns:
+            anos_unicos = sorted(set(int(a) for a in df_res["AÑO"].dropna()))
+            n_anos = len(anos_unicos)
+            if n_anos == 0:
+                anos_texto = _t("No disponible")
+            elif n_anos == 1:
+                anos_texto = str(anos_unicos[0])
+            elif anos_unicos == list(range(anos_unicos[0], anos_unicos[-1] + 1)):
+                anos_texto = f"{anos_unicos[0]}–{anos_unicos[-1]}"
+            else:
+                anos_texto = ", ".join(str(a) for a in anos_unicos)
+        else:
+            n_anos = 0
+            anos_unicos = []
+            anos_texto = _t("No disponible")
+
         if usar_ia:
-            m1, m2, m3, m4 = st.columns(4)
+            m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric(_t("Total Filas"), f"{total:,}")
             m2.metric(_t("Rescatados IA"), f"{kpis.get('rescatados', 0):,}")
             m3.metric(_t("Ahorro Caché"), f"{kpis.get('cache', 0):,}")
             m4.metric(_t("Nuevas Reglas"), f"+{kpis.get('nuevas', 0)}")
+            m5.metric(_t("Años procesados"), f"{n_anos}",
+                      help=_t("Años con datos: {} ").format(", ".join(str(a) for a in anos_unicos) if n_anos else _t("No disponible")))
         else:
-            m1, m2, m3 = st.columns(3)
+            m1, m2, m3, m4 = st.columns(4)
             m1.metric(_t("Total Filas"), f"{total:,}")
             m2.metric(_t("Marcas únicas"), f"{n_marcas_unicas:,}")
-            m3.metric(
+            m3.metric(_t("Años procesados"), f"{n_anos}",
+                      help=_t("Años con datos: {} ").format(", ".join(str(a) for a in anos_unicos) if n_anos else _t("No disponible")))
+            m4.metric(
                 _t("Pendientes de revisión"),
                 f"{1 - pct_completado:.1%}",
                 help=_t("Complemento de la clasificación completada: celdas de características sin identificar. Requieren revisión."),
