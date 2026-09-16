@@ -119,8 +119,8 @@ def _traducir_progreso(texto: str) -> str:
 _selector_izq, _selector_der = st.columns([5, 1])
 with _selector_izq:
     st.markdown(
-        f'<div class="brand-mark"><span class="brand-icon">V</span>'
-        f'<span class="brand-name">{_t("Veritrade")}</span></div>',
+        f'<div class="brand-mark"><span class="brand-icon">b</span>'
+        f'<span class="brand-name">{_t("Veritradx")}</span></div>',
         unsafe_allow_html=True,
     )
 with _selector_der:
@@ -169,10 +169,18 @@ st.markdown("""
         border-radius: 0.5rem;
         box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     }
+    /* Barra de progreso de procesamiento más gruesa */
+    div[data-testid="stProgress"] > div {
+        height: 1rem;
+    }
+    div[data-testid="stProgress"] [role="progressbar"] {
+        height: 1rem;
+        border-radius: 999px;
+    }
 
     /* Barra llamativa de identificación global */
     .kpi-bar { margin: 4px 0 2px; }
-    .kpi-bar-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+    .kpi-bar-head { display: flex; justify-content: flex-start; align-items: baseline; gap: 12px; margin-bottom: 10px; }
     .kpi-bar-label { font-size: .95rem; font-weight: 650; color: #162322; }
     .kpi-bar-value { font-size: 1.6rem; font-weight: 800; color: #197a5a; letter-spacing: -.02em; }
     .kpi-bar-track { height: 30px; background: #eef2ef; border: 1px solid #e2e8f0; border-radius: 999px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.06); }
@@ -947,7 +955,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                   <div class="kpi-bar-track">
                     <div class="kpi-bar-fill" style="width: {pct_total_identificado * 100:.1f}%"></div>
                   </div>
-                  <div class="kpi-bar-caption">{_tf("Celdas identificadas: {} de {} ({} características × {} filas)", f"{total_general - no_identificadas:,}", f"{total_general:,}", str(n_caract), f"{total:,}")}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
