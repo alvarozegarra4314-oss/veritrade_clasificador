@@ -72,7 +72,14 @@ _TRADUCCIONES = {
         "Ahorro Caché": "Cache Savings",
         "Nuevas Reglas": "New Rules",
         "Reglas deterministas": "Deterministic rules",
-        "Identificación de producto: {} de {} filas ({})": "Product identification: {} of {} rows ({})",
+        "Producto identificado: {} de {} filas ({})": "Product identified: {} of {} rows ({})",
+        "Producto identificado": "Product identified",
+        "Marcas únicas": "Unique brands",
+        "Pendientes de revisión": "Needs review",
+        "Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas.": "Rows where the engine identified the product type (UPS, battery, switch, etc.). Does not include brand or technical characteristics.",
+        "🏷️ Características identificadas": "🏷️ Identified characteristics",
+        "Reglas": "Rules",
+        "✅ Completado · Solo reglas deterministas": "✅ Completed · Deterministic rules only",
         "Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.).": "Percentage of rows where the engine identified the product type (UPS, switch, battery, etc.).",
         "Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes).": "Number of distinct brands detected (excluding generic, no-brand, and component brands).",
         "No hay características no técnicas configuradas en el maestro.": "No non-technical characteristics are configured in the rulebook.",
@@ -112,8 +119,10 @@ def _traducir_progreso(texto: str) -> str:
         return texto
     traduccion = texto.replace("Fase 1/2 · Reglas", _t("Fase 1/2 · Reglas"))
     traduccion = traduccion.replace("Fase 2/2 · IA", _t("Fase 2/2 · IA"))
+    traduccion = traduccion.replace("Reglas:", _t("Reglas") + ":")
     traduccion = traduccion.replace("filas", _t("filas"))
     traduccion = traduccion.replace("descripciones", "descriptions")
+    traduccion = traduccion.replace(" de ", " of ")
     return _TRADUCCIONES["English"].get(traduccion, _t(traduccion))
 
 
@@ -718,7 +727,10 @@ if procesar:
                         return
                     pct = min(i / total, 1.0)
                     if fase == "reglas":
-                        txt = f"Fase 1/2 · Reglas: {i:,} de {total:,} filas"
+                        if _usar_ia:
+                            txt = f"Fase 1/2 · Reglas: {i:,} de {total:,} filas"
+                        else:
+                            txt = f"Reglas: {i:,} de {total:,} filas"
                     else:
                         txt = f"Fase 2/2 · IA: {i:,} de {total:,} descripciones"
                     _shared["progress_pct"] = pct
@@ -891,36 +903,12 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         total = max(kpis.get("total", 1), 1)
         usar_ia = st.session_state.get("_usar_ia", False)
 
-        # ---- Bloque 1: Resultado del proceso ----
-        if usar_ia:
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric(_t("Total Filas"), f"{kpis.get('total', 0):,}")
-            m2.metric(_t("Rescatados IA"), f"{kpis.get('rescatados', 0):,}")
-            m3.metric(_t("Ahorro Caché"), f"{kpis.get('cache', 0):,}")
-            m4.metric(_t("Nuevas Reglas"), f"+{kpis.get('nuevas', 0)}")
-        else:
-            m1, m2 = st.columns(2)
-            m1.metric(_t("Total Filas"), f"{kpis.get('total', 0):,}")
-            m2.metric(_t("Motor"), _t("Reglas deterministas"))
-
-        if kpis.get("errores", 0) > 0:
-            st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
-
-        st.write("")
-
-        # ---- Bloque 2: Cobertura de clasificación y marcas identificadas ----
+        # ---- Bloque 1: KPIs principales ----
         con_producto = kpis.get("con_producto", 0)
         pct_con_producto = con_producto / total
+        pendientes = kpis.get("pendientes", 0)
 
-        # Barra de cobertura general: % de filas donde se identificó ALGÚN tipo de producto
-        st.markdown(f"#### {_t('🎯 Cobertura de clasificación')}")
-        st.caption(_t("Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.)."))
-        st.progress(
-            min(pct_con_producto, 1.0),
-            text=_tf("Identificación de producto: {} de {} filas ({})", f"{con_producto:,}", f"{total:,}", f"{pct_con_producto:.1%}"),
-        )
-
-        # Marcas identificadas: número de marcas distintas reales (excluye genéricas/sin marca)
+        # Marcas únicas reales (excluye genéricas, S/M y marca de componentes)
         df_res = st.session_state.df_resultado
         if "Marca_Extraida" in df_res.columns:
             marcas_unicas = df_res["Marca_Extraida"].dropna().astype(str).str.strip().str.upper()
@@ -929,7 +917,37 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         else:
             n_marcas_unicas = 0
 
-        # ---- Bloque 3: Marcas únicas y % de coincidencia por característica ----
+        if usar_ia:
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric(_t("Total Filas"), f"{total:,}")
+            m2.metric(_t("Rescatados IA"), f"{kpis.get('rescatados', 0):,}")
+            m3.metric(_t("Ahorro Caché"), f"{kpis.get('cache', 0):,}")
+            m4.metric(_t("Nuevas Reglas"), f"+{kpis.get('nuevas', 0)}")
+        else:
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric(_t("Total Filas"), f"{total:,}")
+            m2.metric(
+                _t("Producto identificado"),
+                f"{pct_con_producto:.1%}",
+                help=_t("Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas."),
+            )
+            m3.metric(_t("Marcas únicas"), f"{n_marcas_unicas:,}")
+            m4.metric(_t("Pendientes de revisión"), f"{pendientes:,}")
+
+        if kpis.get("errores", 0) > 0:
+            st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
+
+        st.write("")
+
+        # ---- Bloque 2: Barra de cobertura (visual) ----
+        st.markdown(f"#### {_t('🎯 Cobertura de clasificación')}")
+        st.caption(_t("Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.)."))
+        st.progress(
+            min(pct_con_producto, 1.0),
+            text=_tf("Producto identificado: {} de {} filas ({})", f"{con_producto:,}", f"{total:,}", f"{pct_con_producto:.1%}"),
+        )
+
+        # ---- Bloque 3: % de coincidencia por característica ----
         # Características no numéricas = variables categóricas del maestro
         # (tipo de tecnología, fases, etc. — se excluyen las numéricas como
         # amperaje, voltaje, kVA).
@@ -939,18 +957,8 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         if not cols_caract:
             cols_caract = [c for c in vars_cat if c in df_res.columns]
 
-        st.markdown(f"#### {_t('🏷️ Marcas y características identificadas')}")
-
-        # Marcas únicas identificadas (excluye genéricas, S/M y marca de componentes)
-        st.metric(
-            _t("🏷️ Marcas únicas identificadas"),
-            f"{n_marcas_unicas:,}",
-            help=_t("Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes)."),
-        )
-
-        # % de coincidencia de TODAS las características no técnicas (dinámico:
-        # si el maestro tiene 2, se muestran 2; si tiene 4, se muestran 4).
         if cols_caract:
+            st.markdown(f"#### {_t('🏷️ Características identificadas')}")
             conteos_caract = df_res[cols_caract].notna().sum()
             cols_metricas = st.columns(len(cols_caract))
             for col_metrica, var in zip(cols_metricas, cols_caract):
