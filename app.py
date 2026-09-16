@@ -12,6 +12,110 @@ import streamlit as st
 # ---------------------------------------------------------------------
 st.set_page_config(page_title="Clasificador de Importaciones — Veritrade", page_icon="🗂️", layout="wide")
 
+# ---------------------------------------------------------------------
+# IDIOMA DE LA INTERFAZ
+# ---------------------------------------------------------------------
+_TRADUCCIONES = {
+    "Español": {},
+    "English": {
+        "🗂️ Clasificador de Importaciones — Veritrade": "🗂️ Import Classification — Veritrade",
+        "Clasificador de Importaciones — Veritrade": "Import Classification — Veritrade",
+        "Sube tu archivo de importaciones y obtén la clasificación por producto y marca. **No necesitas saber de reglas:** la herramienta aplica el maestro de la línea automáticamente.": "Upload your import file and get classification by product and brand. **You do not need to know the rules:** the tool applies the product line rulebook automatically.",
+        "📊 Clasificar Importaciones": "📊 Classify Imports",
+        "1. Archivo de Datos Crudos": "1. Raw Data File",
+        "Sube el archivo Excel con las descripciones a analizar.": "Upload the Excel file containing the descriptions to analyze.",
+        "Arrastra tu archivo .xlsx aquí": "Drag your .xlsx file here",
+        "Hoja a procesar": "Sheet to process",
+        "Se preseleccionó automáticamente la hoja con más datos.": "The sheet with the most data was selected automatically.",
+        "2. Maestro de Reglas": "2. Rulebook",
+        "Usa siempre tu propio maestro .xlsx. La conexión local del proyecto ya no es necesaria.": "Always use your own .xlsx rulebook. The project's local connection is no longer required.",
+        "Arrastra tu archivo maestro .xlsx aquí": "Drag your rulebook .xlsx file here",
+        "📥 Sube tu maestro propio para habilitar el análisis.": "📥 Upload your own rulebook to enable analysis.",
+        "▶️ PROCESAR CLASIFICACIÓN": "▶️ RUN CLASSIFICATION",
+        "⚠️ Se detectó que los resultados no están disponibles. Por favor, recarga la página o vuelve a procesar.": "⚠️ Results are unavailable. Please reload the page or run the classification again.",
+        "Reglas deterministas": "Deterministic rules",
+        "Error al leer el maestro: {}": "Error reading the rulebook: {}",
+        "Maestro Optimizado (Sin aprendizajes nuevos)": "Optimized Rulebook (No New Learnings)",
+        "Generando Excel… Esto puede tardar unos segundos para archivos grandes.": "Generating Excel... This may take a few seconds for large files.",
+        "Hoja": "Sheet",
+        "filas": "rows",
+        "columnas": "columns",
+        "Columnas de descripción detectadas": "Description columns detected",
+        "Maestro": "Rulebook",
+        "Línea": "Line",
+        "Reglas activas": "Active rules",
+        "Fase 1/2 · Reglas": "Phase 1/2 · Rules",
+        "Fase 2/2 · IA": "Phase 2/2 · AI",
+        "Preparando procesamiento...": "Preparing processing...",
+        "Iniciando...": "Starting...",
+        "⏳ Ya hay un procesamiento en curso. Espera a que termine.": "⏳ Processing is already in progress. Please wait for it to finish.",
+        "📥 Resultados y Descargas": "📥 Results and Downloads",
+        "✅ Proceso Finalizado": "✅ Process Completed",
+        "🎯 Cobertura de clasificación": "🎯 Classification coverage",
+        "🏷️ Marcas y características identificadas": "🏷️ Identified brands and characteristics",
+        "🏷️ Marcas únicas identificadas": "🏷️ Unique brands identified",
+        "🧠 Descargar Maestro Optimizado": "🧠 Download Optimized Rulebook",
+        "📥 Descargar Resultado (Excel)": "📥 Download Result (Excel)",
+        "⚙️ Preparar Excel para descargar": "⚙️ Prepare Excel for download",
+        "✅ Excel generado. Usa el botón de descarga abajo.": "✅ Excel generated. Use the download button below.",
+        "No se pudo leer la hoja": "Could not read the sheet",
+        "El archivo no contiene hojas.": "The file contains no sheets.",
+        "No se pudo leer el archivo": "Could not read the file",
+        "Columnas detectadas": "Detected columns",
+        "Vista previa del archivo crudo": "Raw file preview",
+        "Error al leer el maestro": "Error reading the rulebook",
+        "Error al leer el maestro: {}": "Error reading the rulebook: {}",
+        "Reglas deterministas (sin IA)": "Deterministic rules (no AI)",
+        "Motor": "Engine",
+        "Total Filas": "Total Rows",
+        "Rescatados IA": "AI Rescued",
+        "Ahorro Caché": "Cache Savings",
+        "Nuevas Reglas": "New Rules",
+        "Reglas deterministas": "Deterministic rules",
+        "Identificación de producto: {} de {} filas ({})": "Product identification: {} of {} rows ({})",
+        "Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.).": "Percentage of rows where the engine identified the product type (UPS, switch, battery, etc.).",
+        "Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes).": "Number of distinct brands detected (excluding generic, no-brand, and component brands).",
+        "No hay características no técnicas configuradas en el maestro.": "No non-technical characteristics are configured in the rulebook.",
+        "Maestro Optimizado (Sin aprendizajes nuevos)": "Optimized Rulebook (No New Learnings)",
+        "Generando Excel… Esto puede tardar unos segundos para archivos grandes.": "Generating Excel... This may take a few seconds for large files.",
+    },
+}
+
+if "idioma_interfaz" not in st.session_state:
+    st.session_state.idioma_interfaz = "Español"
+
+
+def _t(texto: str) -> str:
+    """Traduce un texto visible sin alterar nombres de datos ni reglas."""
+    return _TRADUCCIONES[st.session_state.idioma_interfaz].get(texto, texto)
+
+
+def _tf(texto: str, *args) -> str:
+    """Traduce y conserva los valores dinámicos de un mensaje."""
+    traduccion = _TRADUCCIONES[st.session_state.idioma_interfaz].get(texto, texto)
+    return traduccion.format(*args)
+
+
+def _traducir_progreso(texto: str) -> str:
+    """Traduce etiquetas de progreso manteniendo contadores y nombres."""
+    if st.session_state.idioma_interfaz == "Español":
+        return texto
+    traduccion = texto.replace("Fase 1/2 · Reglas", _t("Fase 1/2 · Reglas"))
+    traduccion = traduccion.replace("Fase 2/2 · IA", _t("Fase 2/2 · IA"))
+    traduccion = traduccion.replace("filas", _t("filas"))
+    traduccion = traduccion.replace("descripciones", "descriptions")
+    return _TRADUCCIONES["English"].get(traduccion, _t(traduccion))
+
+
+_selector_izq, _selector_der = st.columns([7, 1])
+with _selector_der:
+    st.selectbox(
+        "Language / Idioma",
+        ["Español", "English"],
+        key="idioma_interfaz",
+        label_visibility="collapsed",
+    )
+
 # Ignorar la advertencia de obsolescencia de la librería de Gemini
 warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
 
@@ -209,7 +313,7 @@ def _vista_previa_cruda(bytes_raw: bytes, hoja: str) -> pd.DataFrame:
 def _mensaje_columnas_no_reconocidas(columnas) -> str:
     """Mensaje accionable cuando la hoja no tiene columnas de descripción."""
     lista_cols = ", ".join(map(str, list(columnas)[:15])) + (" ..." if len(columnas) > 15 else "")
-    return (
+    mensaje = (
         "⚠️ La hoja seleccionada no tiene ninguna columna de descripción reconocible, "
         "así que no se puede clasificar.\n\n"
         "**Qué buscamos:** columnas cuyo nombre contenga *DESCRIPCION*, *DETALLE*, "
@@ -219,12 +323,23 @@ def _mensaje_columnas_no_reconocidas(columnas) -> str:
         "Selecciona otra hoja aquí arriba o verifica que el archivo sea el export "
         "Veritrade correcto."
     )
+    if st.session_state.idioma_interfaz == "English":
+        return (
+            "⚠️ The selected sheet has no recognizable description columns, "
+            "so it cannot be classified.\n\n"
+            "**What we look for:** column names containing *DESCRIPCION*, *DETALLE*, "
+            "*MERCADERIA* or *COMMODITY*. Administrative columns (*PARTIDA*, *ARANCEL*, "
+            "*NANDINA*, *SUBPARTIDA*) are intentionally ignored.\n\n"
+            f"**Columns found:** {lista_cols}\n\n"
+            "Select another sheet above or verify that this is the correct Veritrade export."
+        )
+    return mensaje
 
 # =====================================================================
 # ENCABEZADO
 # =====================================================================
-st.title("🗂️ Clasificador de Importaciones — Veritrade")
-st.markdown("Sube tu archivo de importaciones y obtén la clasificación por producto y marca. **No necesitas saber de reglas:** la herramienta aplica el maestro de la línea automáticamente.")
+st.title(_t("🗂️ Clasificador de Importaciones — Veritrade"))
+st.markdown(_t("Sube tu archivo de importaciones y obtén la clasificación por producto y marca. **No necesitas saber de reglas:** la herramienta aplica el maestro de la línea automáticamente."))
 st.write("") # Espaciador
 
 # =====================================================================
@@ -233,7 +348,7 @@ st.write("") # Espaciador
 # La pestaña "Crear Maestro" está OCULTA temporalmente (no se elimina).
 # Para reactivarla: vuelve a agregar "🔧 Crear Maestro" a la lista y
 # cambia "if False" por "with tab_crear" en la SECCIÓN 5.
-tab_clasificar = st.tabs(["📊 Clasificar Importaciones"])[0]
+tab_clasificar = st.tabs([_t("📊 Clasificar Importaciones")])[0]
 
 with tab_clasificar:
     # =====================================================================
@@ -249,9 +364,9 @@ with tab_clasificar:
 
     with c_raw:
         with st.container(border=True):
-            st.subheader("1. Archivo de Datos Crudos")
-            st.caption("Sube el archivo Excel con las descripciones a analizar.")
-            archivo_raw = st.file_uploader("Arrastra tu archivo .xlsx aquí", type=["xlsx"], label_visibility="collapsed")
+            st.subheader(_t("1. Archivo de Datos Crudos"))
+            st.caption(_t("Sube el archivo Excel con las descripciones a analizar."))
+            archivo_raw = st.file_uploader(_t("Arrastra tu archivo .xlsx aquí"), type=["xlsx"], label_visibility="collapsed")
 
             if archivo_raw is not None:
                 try:
@@ -263,14 +378,14 @@ with tab_clasificar:
                         recomendada = _hoja_recomendada(info_hojas)
                         idx_default = nombres_hojas.index(recomendada) if recomendada in nombres_hojas else 0
                         hoja_raw = st.selectbox(
-                            "Hoja a procesar",
+                            _t("Hoja a procesar"),
                             nombres_hojas,
                             index=idx_default,
-                            help="Se preseleccionó automáticamente la hoja con más datos.",
+                            help=_t("Se preseleccionó automáticamente la hoja con más datos."),
                         )
                         filas_estimadas = info_hojas[idx_default]["filas"]
                         cols_nombradas = info_hojas[idx_default].get("cols_nombradas", 0)
-                        st.caption(f"📄 Hoja **{hoja_raw}** — ~{filas_estimadas:,} filas · {cols_nombradas} columnas")
+                        st.caption(f"📄 {_t('Hoja')} **{hoja_raw}** — ~{filas_estimadas:,} {_t('filas')} · {cols_nombradas} {_t('columnas')}")
 
                         # Validación temprana: la hoja debe tener columnas de
                         # descripción reconocibles ANTES de permitir procesar.
@@ -279,35 +394,35 @@ with tab_clasificar:
                         try:
                             df_prev = _vista_previa_cruda(archivo_raw.getvalue(), hoja_raw)
                         except Exception as e:
-                            st.error(f"No se pudo leer la hoja '{hoja_raw}': {e}")
+                            st.error(f"{_t('No se pudo leer la hoja')} '{hoja_raw}': {e}")
 
                         if df_prev is not None:
                             cols_desc_detectadas = identificar_columnas_descripcion(df_prev.columns)
                             if cols_desc_detectadas:
                                 hoja_raw_valida = True
-                                st.caption(f"🔎 Columnas de descripción detectadas: **{', '.join(cols_desc_detectadas)}**")
-                                with st.expander("👀 Vista previa del archivo crudo"):
-                                    st.caption(f"Columnas detectadas: {len(df_prev.columns)}")
+                                st.caption(f"🔎 {_t('Columnas de descripción detectadas')}: **{', '.join(cols_desc_detectadas)}**")
+                                with st.expander(f"👀 {_t('Vista previa del archivo crudo')}"):
+                                    st.caption(f"{_t('Columnas detectadas')}: {len(df_prev.columns)}")
                                     st.dataframe(df_prev, width="stretch", hide_index=True)
                             else:
                                 hoja_raw_valida = False
                                 st.error(_mensaje_columnas_no_reconocidas(df_prev.columns))
                     else:
-                        st.error("El archivo no contiene hojas.")
+                        st.error(_t("El archivo no contiene hojas."))
                         hoja_raw = None
                 except Exception as e:
-                    st.error(f"No se pudo leer el archivo: {e}")
+                    st.error(f"{_t('No se pudo leer el archivo')}: {e}")
                     hoja_raw = None
             else:
                 hoja_raw = None
 
     with c_maestro:
         with st.container(border=True):
-            st.subheader("2. Maestro de Reglas")
-            st.caption("Usa siempre tu propio maestro .xlsx. La conexión local del proyecto ya no es necesaria.")
+            st.subheader(_t("2. Maestro de Reglas"))
+            st.caption(_t("Usa siempre tu propio maestro .xlsx. La conexión local del proyecto ya no es necesaria."))
 
             archivo_maestro_up = st.file_uploader(
-                "Arrastra tu archivo maestro .xlsx aquí",
+                _t("Arrastra tu archivo maestro .xlsx aquí"),
                 type=["xlsx"],
                 label_visibility="collapsed",
                 key="up_maestro",
@@ -335,11 +450,11 @@ with tab_clasificar:
                     # "característica identificada" en los resultados.
                     st.session_state.variables_categoricas = list(getattr(maestro_info, "variables_categoricas", []))
                     st.session_state.variables_potencia = list(getattr(maestro_info, "variables_potencia", []))
-                    st.success(f"✅ **Maestro:** {maestro_nombre} | **Línea:** {linea_detectada} | **Reglas activas:** {n_cond}")
+                    st.success(f"✅ **{_t('Maestro')}:** {maestro_nombre} | **{_t('Línea')}:** {linea_detectada} | **{_t('Reglas activas')}:** {n_cond}")
                 except Exception as e:
-                    st.warning(f"Error al leer el maestro: {e}")
+                    st.warning(_tf("Error al leer el maestro: {}", e))
             else:
-                st.info("📥 Sube tu maestro propio para habilitar el análisis.")
+                st.info(_t("📥 Sube tu maestro propio para habilitar el análisis."))
 
     # =====================================================================
     # SECCIÓN 2: CONFIGURACIÓN DE IA (OCULTA — se usa solo el modo reglas)
@@ -466,7 +581,7 @@ listo_para_procesar = (
 )
 
 procesar = st.button(
-    "▶️ PROCESAR CLASIFICACIÓN",
+    _t("▶️ PROCESAR CLASIFICACIÓN"),
     type="primary",
     width="stretch",
     disabled=not listo_para_procesar,
@@ -474,7 +589,7 @@ procesar = st.button(
 
 if procesar:
     if st.session_state.get("processing_active"):
-        st.warning("⏳ Ya hay un procesamiento en curso. Espera a que termine.")
+        st.warning(_t("⏳ Ya hay un procesamiento en curso. Espera a que termine."))
     else:
         linea = st.session_state.get("linea_detectada", "Producto")
         archivo_raw.seek(0)
@@ -650,7 +765,7 @@ def _fragmento_progreso_rerun():
 
     pct = st.session_state.get("progress_pct", 0.0)
     texto = st.session_state.get("progress_text", "Iniciando...")
-    st.progress(pct, text=texto)
+    st.progress(pct, text=_traducir_progreso(texto))
 
 
 if st.session_state.get("processing_active", False):
@@ -663,7 +778,7 @@ if st.session_state.get("processing_active", False):
 # Safeguard: Si proceso_completado es True, asegurar que df_resultado se recupera si fue limpiado accidentalmente
 if st.session_state.get("proceso_completado") and ("df_resultado" not in st.session_state or st.session_state.df_resultado is None):
     # En este caso, hay un problema de persistencia. Log it but don't crash.
-    st.warning("⚠️ Se detectó que los resultados no están disponibles. Por favor, recarga la página o vuelve a procesar.")
+    st.warning(_t("⚠️ Se detectó que los resultados no están disponibles. Por favor, recarga la página o vuelve a procesar."))
     st.session_state.proceso_completado = False
 
 # Fondo verdoso para diferenciar el área de resultados del resto de la app.
@@ -688,9 +803,9 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
         col_titulo, col_tag = st.columns([4, 1])
         with col_titulo:
-            st.markdown("### 📥 Resultados y Descargas")
+            st.markdown(f"### {_t('📥 Resultados y Descargas')}")
         with col_tag:
-            st.success("✅ Proceso Finalizado")
+            st.success(_t("✅ Proceso Finalizado"))
 
         kpis = st.session_state.kpis
         total = max(kpis.get("total", 1), 1)
@@ -699,14 +814,14 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         # ---- Bloque 1: Resultado del proceso ----
         if usar_ia:
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
-            m2.metric("Rescatados IA", f"{kpis.get('rescatados', 0):,}")
-            m3.metric("Ahorro Caché", f"{kpis.get('cache', 0):,}")
-            m4.metric("Nuevas Reglas", f"+{kpis.get('nuevas', 0)}")
+            m1.metric(_t("Total Filas"), f"{kpis.get('total', 0):,}")
+            m2.metric(_t("Rescatados IA"), f"{kpis.get('rescatados', 0):,}")
+            m3.metric(_t("Ahorro Caché"), f"{kpis.get('cache', 0):,}")
+            m4.metric(_t("Nuevas Reglas"), f"+{kpis.get('nuevas', 0)}")
         else:
             m1, m2 = st.columns(2)
-            m1.metric("Total Filas", f"{kpis.get('total', 0):,}")
-            m2.metric("Motor", "Reglas deterministas")
+            m1.metric(_t("Total Filas"), f"{kpis.get('total', 0):,}")
+            m2.metric(_t("Motor"), _t("Reglas deterministas"))
 
         if kpis.get("errores", 0) > 0:
             st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
@@ -718,11 +833,11 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         pct_con_producto = con_producto / total
 
         # Barra de cobertura general: % de filas donde se identificó ALGÚN tipo de producto
-        st.markdown("#### 🎯 Cobertura de clasificación")
-        st.caption("Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.).")
+        st.markdown(f"#### {_t('🎯 Cobertura de clasificación')}")
+        st.caption(_t("Porcentaje de filas donde el motor logró identificar el tipo de producto (cualquiera: UPS, interruptor, batería, etc.)."))
         st.progress(
             min(pct_con_producto, 1.0),
-            text=f"Identificación de producto: {con_producto:,} de {total:,} filas ({pct_con_producto:.1%})",
+            text=_tf("Identificación de producto: {} de {} filas ({})", f"{con_producto:,}", f"{total:,}", f"{pct_con_producto:.1%}"),
         )
 
         # Marcas identificadas: número de marcas distintas reales (excluye genéricas/sin marca)
@@ -744,13 +859,13 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         if not cols_caract:
             cols_caract = [c for c in vars_cat if c in df_res.columns]
 
-        st.markdown("#### 🏷️ Marcas y características identificadas")
+        st.markdown(f"#### {_t('🏷️ Marcas y características identificadas')}")
 
         # Marcas únicas identificadas (excluye genéricas, S/M y marca de componentes)
         st.metric(
-            "🏷️ Marcas únicas identificadas",
+            _t("🏷️ Marcas únicas identificadas"),
             f"{n_marcas_unicas:,}",
-            help="Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes).",
+            help=_t("Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes)."),
         )
 
         # % de coincidencia de TODAS las características no técnicas (dinámico:
@@ -767,7 +882,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                     help=f"{n_coinc:,} de {total:,} filas tienen esta característica identificada.",
                 )
         else:
-            st.caption("No hay características no técnicas configuradas en el maestro.")
+            st.caption(_t("No hay características no técnicas configuradas en el maestro."))
 
         st.write("")
 
@@ -775,7 +890,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         with d1:
             if st.session_state.maestro_opt_data is not None:
                 st.download_button(
-                    label=f"🧠 Descargar Maestro Optimizado",
+                    label=_t("🧠 Descargar Maestro Optimizado"),
                     data=st.session_state.maestro_opt_data,
                     file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -783,12 +898,12 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                     key="btn_descarga_maestro",
                 )
             else:
-                st.button("🧠 Maestro Optimizado (Sin aprendizajes nuevos)", disabled=True, width="stretch")
+                st.button(_t("Maestro Optimizado (Sin aprendizajes nuevos)"), disabled=True, width="stretch")
 
         with d2:
             if st.session_state.df_export_data is not None:
                 st.download_button(
-                    label=f"📥 Descargar Resultado (Excel)",
+                    label=_t("📥 Descargar Resultado (Excel)"),
                     data=st.session_state.df_export_data,
                     file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -797,11 +912,11 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                 )
             else:
                 if st.button(
-                    "⚙️ Preparar Excel para descargar",
+                    _t("⚙️ Preparar Excel para descargar"),
                     width="stretch",
                     key="btn_gen_resultado",
                 ):
-                    with st.spinner("Generando Excel… Esto puede tardar unos segundos para archivos grandes."):
+                    with st.spinner(_t("Generando Excel… Esto puede tardar unos segundos para archivos grandes.")):
                         st.session_state.df_export_data = _generar_excel_resultado(
                             st.session_state.df_resultado,
                             st.session_state.kpis,
@@ -810,7 +925,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
                             st.session_state.get("hoja_origen", ""),
                             st.session_state.get("modelo_ia_usado", ""),
                         )
-                    st.success("✅ Excel generado. Usa el botón de descarga abajo.")
+                    st.success(_t("✅ Excel generado. Usa el botón de descarga abajo."))
 
 # =====================================================================
 # SECCIÓN 5: CREAR MAESTRO (DENTRO DEL TAB CREAR)
