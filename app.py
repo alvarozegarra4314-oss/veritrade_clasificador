@@ -28,7 +28,7 @@ _TRADUCCIONES = {
         "Hoja a procesar": "Sheet to process",
         "Se preseleccionó automáticamente la hoja con más datos.": "The sheet with the most data was selected automatically.",
         "2. Maestro de Reglas": "2. Rulebook",
-        "Usa siempre tu propio maestro .xlsx. La conexión local del proyecto ya no es necesaria.": "Always use your own .xlsx rulebook. The project's local connection is no longer required.",
+        "Subir maestro de reglas de producto correspondiente": "Upload product rulebook",
         "Arrastra tu archivo maestro .xlsx aquí": "Drag your rulebook .xlsx file here",
         "📥 Sube tu maestro propio para habilitar el análisis.": "📥 Upload your own rulebook to enable analysis.",
         "▶️ PROCESAR CLASIFICACIÓN": "▶️ RUN CLASSIFICATION",
@@ -182,6 +182,15 @@ st.markdown("""
         height: 1rem;
         border-radius: 999px;
     }
+    /* Evitar sobreposicionamiento de file uploaders */
+    div[data-testid="stFileUploader"] {
+        margin: 4px 0 8px;
+        padding: 2px 0;
+        overflow: visible;
+    }
+    div[data-testid="stFileUploader"] [data-testid="stFileUploadDropzone"] {
+        min-height: 68px;
+    }
 
     /* Barra llamativa de identificación global */
     .kpi-bar { margin: 4px 0 2px; }
@@ -194,7 +203,7 @@ st.markdown("""
 
     /* Identidad de marca */
     .brand-mark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: #162322; }
-    .brand-icon { position: relative; width: 36px; height: 36px; border-radius: 9px; background: #197a5a; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(25,122,90,.25); }
+    .brand-icon { position: relative; width: 36px; height: 36px; border-radius: 9px; background: #E60000; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(230,0,0,.3); }
     .brand-icon .lg-l { position: relative; width: 18px; height: 18px; }
     .brand-icon .lg-l::before { content: ""; position: absolute; left: 0; top: 0; width: 6px; height: 18px; background: #fff; border-radius: 1.5px; }
     .brand-icon .lg-l::after { content: ""; position: absolute; left: 0; bottom: 0; width: 18px; height: 6px; background: #fff; border-radius: 1.5px; }
@@ -508,7 +517,7 @@ with tab_clasificar:
     with c_maestro:
         with st.container(border=True):
             st.subheader(_t("2. Maestro de Reglas"))
-            st.caption(_t("Usa siempre tu propio maestro .xlsx. La conexión local del proyecto ya no es necesaria."))
+            st.caption(_t("Subir maestro de reglas de producto correspondiente"))
 
             archivo_maestro_up = st.file_uploader(
                 _t("Arrastra tu archivo maestro .xlsx aquí"),
