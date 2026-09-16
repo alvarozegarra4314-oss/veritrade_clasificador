@@ -85,9 +85,6 @@ _TRADUCCIONES = {
         "Miles de filas procesadas en segundos": "Thousands of rows processed in seconds",
         "Reglas del maestro aplicadas automáticamente": "Rulebook rules applied automatically",
         "Excel listo para descargar al instante": "Excel ready to download instantly",
-        "Motor listo": "Engine ready",
-        "Sube tus archivos para empezar": "Upload your files to start",
-        "de 3 pasos": "of 3 steps",
     },
 }
 
@@ -173,14 +170,24 @@ st.markdown("""
         box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     }
 
+    /* Barra llamativa de identificación global */
+    .kpi-bar { margin: 4px 0 2px; }
+    .kpi-bar-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+    .kpi-bar-label { font-size: .95rem; font-weight: 650; color: #162322; }
+    .kpi-bar-value { font-size: 1.6rem; font-weight: 800; color: #197a5a; letter-spacing: -.02em; }
+    .kpi-bar-track { height: 30px; background: #eef2ef; border: 1px solid #e2e8f0; border-radius: 999px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.06); }
+    .kpi-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #197a5a 0%, #2ea97f 60%, #4cc38f 100%); box-shadow: 0 0 12px rgba(46,169,127,.45); transition: width .8s ease; }
+    .kpi-bar-fill::after { content: ""; display: block; height: 100%; border-radius: 999px; background: linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0)); }
+    .kpi-bar-caption { margin-top: 8px; font-size: .78rem; color: #63706d; }
+
     /* Identidad de marca */
     .brand-mark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: #162322; }
     .brand-icon { width: 36px; height: 36px; border-radius: 10px; background: #197a5a; color: white; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem; box-shadow: 0 2px 6px rgba(25,122,90,.2); }
     .brand-name { font-weight: 700; font-size: .95rem; }
 
     /* Hero */
-    .hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; padding: 12px 0 8px; }
-    .hero-main { max-width: 780px; }
+    .hero { display: flex; gap: 32px; padding: 12px 0 8px; }
+    .hero-main { width: 100%; }
     .eyebrow { display: inline-flex; align-items: center; gap: 7px; background: #e2f1e9; border: 1px solid #c0e4d0; color: #12563f; text-transform: uppercase; letter-spacing: .1em; font-size: .72rem; font-weight: 800; padding: 5px 11px; border-radius: 999px; margin-bottom: 14px; }
     .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: #197a5a; flex-shrink: 0; }
     .hero h1 { margin: 0 0 14px; font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.02; letter-spacing: -.055em; color: #162322; }
@@ -188,21 +195,8 @@ st.markdown("""
     .hero-benefits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
     .hero-benefit { display: flex; align-items: flex-start; gap: 8px; font-size: .84rem; line-height: 1.4; color: #63706d; }
     .hero-benefit i { flex-shrink: 0; font-style: normal; }
-    .hero-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; padding-top: 8px; }
-    .status-badge { white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; border: 1px solid #bbdfcc; background: #e2f1e9; color: #12563f; border-radius: 999px; padding: 9px 13px; font-weight: 750; font-size: .82rem; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #197a5a; flex-shrink: 0; }
-    .quick-start { display: inline-flex; align-items: center; gap: 8px; color: #63706d; font-size: .82rem; }
-    .quick-start-arrow { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; border: 1px solid #dfe7e2; background: white; align-items: center; justify-content: center; font-size: .7rem; animation: bounce 1.6s infinite; }
-    @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
-
-    /* Indicador de pasos */
-    .step-hint { display: inline-flex; align-items: center; gap: 6px; color: #63706d; font-size: .78rem; font-weight: 700; }
-    .step-hint b { color: #197a5a; font-size: .95rem; }
-
     @media (max-width: 768px) {
-        .hero { flex-direction: column; }
         .hero-benefits { grid-template-columns: 1fr; }
-        .hero-right { align-items: flex-start; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -411,14 +405,10 @@ st.markdown(
         <div class="eyebrow"><i class="eyebrow-dot"></i><span>{_t("Clasificación automática de importaciones")}</span></div>
         <h1>{_t("De descripciones libres")} <span class="hl">{_t("a datos clasificados")}</span></h1>
         <div class="hero-benefits">
-          <div class="hero-benefit"><i>⚡</i><span>{_t("Miles de filas procesadas en segundos")}</span></div>
           <div class="hero-benefit"><i>🎯</i><span>{_t("Reglas del maestro aplicadas automáticamente")}</span></div>
+          <div class="hero-benefit"><i>⚡</i><span>{_t("Miles de filas procesadas en segundos")}</span></div>
           <div class="hero-benefit"><i>📥</i><span>{_t("Excel listo para descargar al instante")}</span></div>
         </div>
-      </div>
-      <div class="hero-right">
-        <div class="status-badge"><i class="dot"></i><span>{_t("Motor listo")}</span></div>
-        <div class="quick-start"><span>{_t("Sube tus archivos para empezar")}</span><span class="quick-start-arrow">↓</span></div>
       </div>
     </div>
     """,
@@ -448,15 +438,8 @@ with tab_clasificar:
 
     with c_raw:
         with st.container(border=True):
-            _col_titulo, _col_paso = st.columns([4, 1])
-            with _col_titulo:
-                st.subheader(_t("1. Archivo de Datos Crudos"))
-                st.caption(_t("Sube el archivo Excel con las descripciones a analizar."))
-            with _col_paso:
-                st.markdown(
-                    f'<div class="step-hint"><b>1</b><span>{_t("de 3 pasos")}</span></div>',
-                    unsafe_allow_html=True,
-                )
+            st.subheader(_t("1. Archivo de Datos Crudos"))
+            st.caption(_t("Sube el archivo Excel con las descripciones a analizar."))
             archivo_raw = st.file_uploader(_t("Arrastra tu archivo .xlsx aquí"), type=["xlsx"], label_visibility="collapsed")
 
             if archivo_raw is not None:
@@ -509,15 +492,8 @@ with tab_clasificar:
 
     with c_maestro:
         with st.container(border=True):
-            _col_titulo2, _col_paso2 = st.columns([4, 1])
-            with _col_titulo2:
-                st.subheader(_t("2. Maestro de Reglas"))
-                st.caption(_t("Usa siempre tu propio maestro .xlsx. La conexión local del proyecto ya no es necesaria."))
-            with _col_paso2:
-                st.markdown(
-                    f'<div class="step-hint"><b>2</b><span>{_t("de 3 pasos")}</span></div>',
-                    unsafe_allow_html=True,
-                )
+            st.subheader(_t("2. Maestro de Reglas"))
+            st.caption(_t("Usa siempre tu propio maestro .xlsx. La conexión local del proyecto ya no es necesaria."))
 
             archivo_maestro_up = st.file_uploader(
                 _t("Arrastra tu archivo maestro .xlsx aquí"),
@@ -961,55 +937,66 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             no_identificadas = sum(int(total - conteos_caract[var]) for var in cols_caract)
             pct_total_identificado = 1 - (no_identificadas / max(total_general, 1))
 
-            st.metric(
-                _t("Identificación global de características"),
-                f"{pct_total_identificado:.1%}",
-                help=_tf("Celdas identificadas: {} de {} ({} características × {} filas)", f"{total_general - no_identificadas:,}", f"{total_general:,}", str(n_caract), f"{total:,}"),
+            st.markdown(
+                f"""
+                <div class="kpi-bar">
+                  <div class="kpi-bar-head">
+                    <span class="kpi-bar-label">{_t("Identificación global de características")}</span>
+                    <span class="kpi-bar-value">{pct_total_identificado:.1%}</span>
+                  </div>
+                  <div class="kpi-bar-track">
+                    <div class="kpi-bar-fill" style="width: {pct_total_identificado * 100:.1f}%"></div>
+                  </div>
+                  <div class="kpi-bar-caption">{_tf("Celdas identificadas: {} de {} ({} características × {} filas)", f"{total_general - no_identificadas:,}", f"{total_general:,}", str(n_caract), f"{total:,}")}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
         st.write("")
 
-        d1, d2 = st.columns(2)
-        with d1:
-            if st.session_state.maestro_opt_data is not None:
-                st.download_button(
-                    label=_t("🧠 Descargar Maestro Optimizado"),
-                    data=st.session_state.maestro_opt_data,
-                    file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    width="stretch",
-                    key="btn_descarga_maestro",
-                )
+        # Botón principal de descarga (ancho completo, prominente)
+        if st.session_state.df_export_data is not None:
+            if st.session_state.pop("excel_listo", False):
+                st.success(_t("✅ Excel generado. Usa el botón de descarga abajo."))
+            st.download_button(
+                label=_t("📥 Descargar Resultado (Excel)"),
+                data=st.session_state.df_export_data,
+                file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch",
+                type="primary",
+                key="btn_descarga_resultado",
+            )
+        else:
+            if st.button(
+                _t("⚙️ Preparar Excel para descargar"),
+                width="stretch",
+                type="primary",
+                key="btn_gen_resultado",
+            ):
+                with st.spinner(_t("Generando Excel… Esto puede tardar unos segundos para archivos grandes.")):
+                    st.session_state.df_export_data = _generar_excel_resultado(
+                        st.session_state.df_resultado,
+                        st.session_state.kpis,
+                        st.session_state.get("linea_producto", "Producto"),
+                        st.session_state.get("archivo_origen", ""),
+                        st.session_state.get("hoja_origen", ""),
+                        st.session_state.get("modelo_ia_usado", ""),
+                    )
+                st.session_state.excel_listo = True
+                st.rerun()
 
-        with d2:
-            if st.session_state.df_export_data is not None:
-                if st.session_state.pop("excel_listo", False):
-                    st.success(_t("✅ Excel generado. Usa el botón de descarga abajo."))
-                st.download_button(
-                    label=_t("📥 Descargar Resultado (Excel)"),
-                    data=st.session_state.df_export_data,
-                    file_name=f"Resultado_{st.session_state.linea_producto}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    width="stretch",
-                    key="btn_descarga_resultado",
-                )
-            else:
-                if st.button(
-                    _t("⚙️ Preparar Excel para descargar"),
-                    width="stretch",
-                    key="btn_gen_resultado",
-                ):
-                    with st.spinner(_t("Generando Excel… Esto puede tardar unos segundos para archivos grandes.")):
-                        st.session_state.df_export_data = _generar_excel_resultado(
-                            st.session_state.df_resultado,
-                            st.session_state.kpis,
-                            st.session_state.get("linea_producto", "Producto"),
-                            st.session_state.get("archivo_origen", ""),
-                            st.session_state.get("hoja_origen", ""),
-                            st.session_state.get("modelo_ia_usado", ""),
-                        )
-                    st.session_state.excel_listo = True
-                    st.rerun()
+        # Maestro optimizado (si existe) — fila separada
+        if st.session_state.maestro_opt_data is not None:
+            st.download_button(
+                label=_t("🧠 Descargar Maestro Optimizado"),
+                data=st.session_state.maestro_opt_data,
+                file_name=f"Maestro_Optimizado_{st.session_state.linea_producto}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch",
+                key="btn_descarga_maestro",
+            )
 
 # =====================================================================
 # SECCIÓN 5: CREAR MAESTRO (DENTRO DEL TAB CREAR)
