@@ -921,9 +921,22 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
         total = max(kpis.get("total", 1), 1)
         usar_ia = st.session_state.get("_usar_ia", False)
 
-        # ---- Bloque 1: Barra de clasificación completada (complemento de pendientes) ----
+        # ---- Bloque 1: Barra de clasificación completada ----
+        # % de celdas llenas en las columnas de características de 2_Caracteristicas
+        # (tipo producto, características técnicas, etc.). La marca se excluye
+        # porque se mide aparte (caso distinto).
         pendientes = kpis.get("pendientes", 0)
-        pct_completado = 1 - (pendientes / total)
+        df_res = st.session_state.df_resultado
+        vars_cat = st.session_state.get("variables_categoricas", [])
+        cols_caract = [c for c in vars_cat if c in df_res.columns]
+        if cols_caract:
+            n_caract = len(cols_caract)
+            total_general = n_caract * total
+            conteos_caract = df_res[cols_caract].notna().sum()
+            no_identificadas = sum(int(total - conteos_caract[var]) for var in cols_caract)
+            pct_completado = 1 - (no_identificadas / max(total_general, 1))
+        else:
+            pct_completado = 0.0
 
         st.markdown(
             f"""
@@ -944,7 +957,6 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
 
         # ---- Bloque 2: KPIs principales ----
         # Marcas únicas reales (excluye genéricas, S/M y marca de componentes)
-        df_res = st.session_state.df_resultado
         if "Marca_Extraida" in df_res.columns:
             marcas_unicas = df_res["Marca_Extraida"].dropna().astype(str).str.strip().str.upper()
             mask_marca_real = ~marcas_unicas.isin(VALORES_MARCA_SIN_RESOLVER)
