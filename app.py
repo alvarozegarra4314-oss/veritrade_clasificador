@@ -146,7 +146,12 @@ st.markdown("""
     div[data-testid="stMetric"], div[data-testid="stMetricLabel"],
     div[data-testid="stMetricValue"], .stButton, .stDownloadButton,
     .stSelectbox, .stFileUploader, .stProgress, .stAlert, .stTabs, .stTab,
-    h1, h2, h3, h4, h5, h6, [data-testid="stHeading"] h1,
+    [data-testid="stMarkdownContainer"], [data-testid="stAlertContainer"],
+    [data-testid="stAlertContentSuccess"], [data-testid="stAlertContentError"],
+    [data-testid="stAlertContentWarning"], [data-testid="stAlertContentInfo"],
+    [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"],
+    h1, h2, h3, h4, h5, h6, p, span, label, li, td, th,
+    [data-testid="stHeading"] h1,
     [data-testid="stHeading"] h2, [data-testid="stHeading"] h3,
     [data-testid="stHeading"] h4, [data-testid="stHeading"] h5,
     [data-testid="stHeading"] h6 {
@@ -184,8 +189,7 @@ st.markdown("""
     .kpi-bar-label { font-size: .95rem; font-weight: 650; color: #162322; }
     .kpi-bar-value { font-size: 1.6rem; font-weight: 800; color: #197a5a; letter-spacing: -.02em; }
     .kpi-bar-track { height: 30px; background: #eef2ef; border: 1px solid #e2e8f0; border-radius: 999px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.06); }
-    .kpi-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #197a5a 0%, #2ea97f 60%, #4cc38f 100%); box-shadow: 0 0 12px rgba(46,169,127,.45); transition: width .8s ease; }
-    .kpi-bar-fill::after { content: ""; display: block; height: 100%; border-radius: 999px; background: linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0)); }
+    .kpi-bar-fill { height: 100%; border-radius: 999px; background: #197a5a; box-shadow: 0 0 12px rgba(25,122,90,.35); transition: width .8s ease; }
     .kpi-bar-caption { margin-top: 8px; font-size: .78rem; color: #63706d; }
 
     /* Identidad de marca */
