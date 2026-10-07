@@ -69,7 +69,7 @@ def agregar_columnas_fecha(df: pd.DataFrame) -> pd.DataFrame:
 def procesar_dataframe_dinamico(
     df_raw: pd.DataFrame,
     ruta_maestro,
-    rescatador_ia: RescatadorIA = None,
+    rescatador_ia: RescatadorIA | None = None,
     progreso_callback=None,
 ) -> pd.DataFrame:
     """
