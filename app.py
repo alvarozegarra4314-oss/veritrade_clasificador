@@ -91,6 +91,103 @@ _TRADUCCIONES = {
         "Miles de filas procesadas en segundos": "Thousands of rows processed in seconds",
         "Reglas del maestro aplicadas automáticamente": "Rulebook rules applied automatically",
         "Excel listo para descargar al instante": "Excel ready to download instantly",
+        # Fragmentos para traducir la barra de progreso
+        "descripciones": "descriptions",
+        "de": "of",
+        "Caché IA": "AI cache",
+        "desde caché": "from cache",
+        "rescató": "rescued",
+        "sin gastar cuota": "without using quota",
+        "Las reglas resolvieron todo": "The rules resolved everything",
+        "Error": "Error",
+        # Mensajes que antes no se traducían
+        "Falta un archivo o hoja válidos para procesar.": "Please upload a valid file and sheet to continue.",
+        "⚠️ {} descripciones tuvieron errores de conexión con Gemini.": "⚠️ {} descriptions had connection errors with Gemini.",
+    },
+    "Français": {
+        "🗂️ Clasificador de Importaciones — Veritrade": "🗂️ Classifieur d'importations — Veritrade",
+        "Clasificador de Importaciones — Veritrade": "Classifieur d'importations — Veritrade",
+        "Sube tu archivo de importaciones y obtén la clasificación por producto y marca. **No necesitas saber de reglas:** la herramienta aplica el maestro de la línea automáticamente.": "Importez votre fichier d'importations et obtenez la classification par produit et par marque. **Vous n'avez pas besoin de connaître les règles :** l'outil applique automatiquement le référentiel de la ligne.",
+        "📊 Clasificar Importaciones": "📊 Classifier les importations",
+        "1. Archivo de Datos Crudos": "1. Fichier de données brutes",
+        "Sube el archivo Excel con las descripciones a analizar.": "Importez le fichier Excel contenant les descriptions à analyser.",
+        "Arrastra tu archivo .xlsx aquí": "Glissez votre fichier .xlsx ici",
+        "Hoja a procesar": "Feuille à traiter",
+        "Se preseleccionó automáticamente la hoja con más datos.": "La feuille contenant le plus de données a été présélectionnée automatiquement.",
+        "2. Maestro de Reglas": "2. Référentiel de règles",
+        "Subir maestro de reglas de producto correspondiente": "Importez le référentiel de règles correspondant au produit",
+        "Arrastra tu archivo maestro .xlsx aquí": "Glissez ici votre fichier référentiel .xlsx",
+        "📥 Sube tu maestro propio para habilitar el análisis.": "📥 Importez votre propre référentiel pour activer l'analyse.",
+        "Iniciar clasificación": "Lancer la classification",
+        "⚠️ Se detectó que los resultados no están disponibles. Por favor, recarga la página o vuelve a procesar.": "⚠️ Les résultats ne sont pas disponibles. Veuillez recharger la page ou relancer la classification.",
+        "Reglas deterministas": "Règles déterministes",
+        "Error al leer el maestro: {}": "Erreur lors de la lecture du référentiel : {}",
+        "Generando Excel… Esto puede tardar unos segundos para archivos grandes.": "Génération du fichier Excel… Cela peut prendre quelques secondes pour les fichiers volumineux.",
+        "Hoja": "Feuille",
+        "filas": "lignes",
+        "columnas": "colonnes",
+        "Columnas de descripción detectadas": "Colonnes de description détectées",
+        "Maestro": "Référentiel",
+        "Fase 1/2 · Reglas": "Phase 1/2 · Règles",
+        "Fase 2/2 · IA": "Phase 2/2 · IA",
+        "Preparando procesamiento...": "Préparation du traitement...",
+        "Iniciando...": "Démarrage...",
+        "⏳ Ya hay un procesamiento en curso. Espera a que termine.": "⏳ Un traitement est déjà en cours. Veuillez attendre la fin.",
+        "📥 Resultados y Descargas": "📥 Résultats et téléchargements",
+        "✅ Proceso Finalizado": "✅ Traitement terminé",
+        "🎯 Cobertura de clasificación": "🎯 Couverture de la classification",
+        "🏷️ Marcas identificadas": "🏷️ Marques identifiées",
+        "🏷️ Marcas únicas identificadas": "🏷️ Marques uniques identifiées",
+        "🧠 Descargar Maestro Optimizado": "🧠 Télécharger le référentiel optimisé",
+        "📥 Descargar Resultado (Excel)": "📥 Télécharger le résultat (Excel)",
+        "⚙️ Preparar Excel para descargar": "⚙️ Préparer le fichier Excel",
+        "✅ Excel generado. Usa el botón de descarga abajo.": "✅ Fichier Excel généré. Utilisez le bouton de téléchargement ci-dessous.",
+        "No se pudo leer la hoja": "Impossible de lire la feuille",
+        "El archivo no contiene hojas.": "Le fichier ne contient aucune feuille.",
+        "No se pudo leer el archivo": "Impossible de lire le fichier",
+        "Columnas detectadas": "Colonnes détectées",
+        "Vista previa del archivo crudo": "Aperçu du fichier brut",
+        "Error al leer el maestro": "Erreur lors de la lecture du référentiel",
+        "Error al leer el maestro: {}": "Erreur lors de la lecture du référentiel : {}",
+        "Reglas deterministas (sin IA)": "Règles déterministes (sans IA)",
+        "Motor": "Moteur",
+        "Total Filas": "Total des lignes",
+        "Rescatados IA": "Récupérés par l'IA",
+        "Ahorro Caché": "Économie du cache",
+        "Nuevas Reglas": "Nouvelles règles",
+        "Producto identificado": "Produit identifié",
+        "Marcas únicas": "Marques uniques",
+        "Pendientes de revisión": "En attente de révision",
+        "Filas donde el motor identificó el tipo de producto (UPS, batería, interruptor, etc.). No incluye marca ni características técnicas.": "Lignes où le moteur a identifié le type de produit (onduleur, batterie, disjoncteur, etc.). N'inclut ni la marque ni les caractéristiques techniques.",
+        "Filas sin producto ni marca identificados (ambos faltan). Requieren revisión manual.": "Lignes sans produit ni marque identifiés (les deux manquants). Nécessitent une révision manuelle.",
+        "Complemento de la clasificación completada: celdas de características sin identificar. Requieren revisión.": "Complément de la classification : cellules de caractéristiques non identifiées. Nécessitent une révision.",
+        "Años procesados": "Années traitées",
+        "Años con datos: {} ": "Années avec données : {} ",
+        "No disponible": "Non disponible",
+        "Identificación global de características": "Identification globale des caractéristiques",
+        "Clasificación completada": "Classification complétée",
+        "Reglas": "Règles",
+        "✅ Completado · Solo reglas deterministas": "✅ Terminé · Règles déterministes uniquement",
+        "Número de marcas distintas detectadas (excluye genéricas, S/M y marca de componentes).": "Nombre de marques distinctes détectées (hors marques génériques, S/M et marque de composants).",
+        "Veritrade": "Veritrade",
+        "Clasificación automática de importaciones": "Classification automatique des importations",
+        "De descripciones libres": "De descriptions libres",
+        "a datos clasificados": "aux données classifiées",
+        "Miles de filas procesadas en segundos": "Des milliers de lignes traitées en quelques secondes",
+        "Reglas del maestro aplicadas automáticamente": "Règles du référentiel appliquées automatiquement",
+        "Excel listo para descargar al instante": "Fichier Excel prêt à télécharger immédiatement",
+        # Fragmentos para traducir la barra de progreso
+        "descripciones": "descriptions",
+        "de": "de",
+        "Caché IA": "Cache IA",
+        "desde caché": "depuis le cache",
+        "rescató": "a récupéré",
+        "sin gastar cuota": "sans consommer de quota",
+        "Las reglas resolvieron todo": "Les règles ont tout résolu",
+        "Error": "Erreur",
+        # Mensajes que antes no se traducían
+        "Falta un archivo o hoja válidos para procesar.": "Il manque un fichier ou une feuille valide pour lancer le traitement.",
+        "⚠️ {} descripciones tuvieron errores de conexión con Gemini.": "⚠️ {} descriptions ont rencontré des erreurs de connexion avec Gemini.",
     },
 }
 
@@ -110,16 +207,31 @@ def _tf(texto: str, *args) -> str:
 
 
 def _traducir_progreso(texto: str) -> str:
-    """Traduce etiquetas de progreso manteniendo contadores y nombres."""
+    """Traduce etiquetas de progreso manteniendo contadores y nombres.
+
+    El texto lo arma el hilo de trabajo en español; aquí se sustituyen solo
+    los fragmentos conocidos, de modo que los números y los nombres de archivo
+    se conservan intactos en cualquier idioma."""
     if st.session_state.idioma_interfaz == "Español":
         return texto
-    traduccion = texto.replace("Fase 1/2 · Reglas", _t("Fase 1/2 · Reglas"))
-    traduccion = traduccion.replace("Fase 2/2 · IA", _t("Fase 2/2 · IA"))
-    traduccion = traduccion.replace("Reglas:", _t("Reglas") + ":")
-    traduccion = traduccion.replace("filas", _t("filas"))
-    traduccion = traduccion.replace("descripciones", "descriptions")
-    traduccion = traduccion.replace(" de ", " of ")
-    return _TRADUCCIONES["English"].get(traduccion, _t(traduccion))
+    idioma = st.session_state.idioma_interfaz
+    for origen, destino in (
+        ("Fase 1/2 · Reglas", _t("Fase 1/2 · Reglas")),
+        ("Fase 2/2 · IA", _t("Fase 2/2 · IA")),
+        ("Las reglas resolvieron todo", _t("Las reglas resolvieron todo")),
+        ("Caché IA", _t("Caché IA")),
+        ("sin gastar cuota", _t("sin gastar cuota")),
+        ("desde caché", _t("desde caché")),
+        ("rescató", _t("rescató")),
+        ("descripciones", _t("descripciones")),
+        ("filas", _t("filas")),
+    ):
+        texto = texto.replace(origen, destino)
+    texto = texto.replace("Reglas:", _t("Reglas") + ":")
+    texto = texto.replace("❌ Error:", "❌ " + _t("Error") + ":")
+    # " de " solo en el separador de contadores, no dentro de palabras.
+    texto = texto.replace(" de ", " " + _t("de") + " ")
+    return _TRADUCCIONES[idioma].get(texto, texto)
 
 
 # Logo oficial de Legrand (recortado y con transparencia en assets/).
@@ -141,8 +253,8 @@ with _selector_izq:
         )
 with _selector_der:
     st.selectbox(
-        "Language / Idioma",
-        ["Español", "English"],
+        "Language / Idioma / Langue",
+        ["Español", "English", "Français"],
         key="idioma_interfaz",
         label_visibility="collapsed",
     )
@@ -239,6 +351,21 @@ st.markdown("""
         opacity: 1;
         cursor: not-allowed;
     }
+    /* Los botones de descarga viven en stDownloadButton y no heredan el
+       estilo de .stButton, así que se pintan con el color primario de tema. */
+    div[data-testid="stDownloadButton"] button[kind="primary"] {
+        color: #ffffff !important;
+        background: var(--verde-pino) !important;
+        border: 1px solid var(--verde-pino) !important;
+        border-radius: 0.5rem;
+        box-shadow: 0 5px 14px rgba(21, 95, 67, 0.16);
+        transition: background-color 160ms ease, box-shadow 160ms ease;
+    }
+    div[data-testid="stDownloadButton"] button[kind="primary"]:hover {
+        background: #104d36 !important;
+        border-color: #104d36 !important;
+        box-shadow: 0 7px 18px rgba(21, 95, 67, 0.22);
+    }
     [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) {
         background: #e8f2e9 !important;
         border: 1px solid var(--verde-borde);
@@ -246,6 +373,40 @@ st.markdown("""
     }
     [data-testid="stAlertContentInfo"] {
         color: var(--verde-pino) !important;
+    }
+
+    /* Pestañas: verde de marca en la activa y tono apagado en las inactivas */
+    div[data-testid="stTab"] {
+        padding-top: 0.3rem;
+        padding-bottom: 0.3rem;
+    }
+    div[data-testid="stTab"] p {
+        font-weight: 650;
+    }
+    div[data-testid="stTab"]:not([aria-selected="true"]) [data-testid="stMarkdownContainer"] {
+        color: var(--texto-secundario) !important;
+    }
+    div[data-testid="stTab"][aria-selected="true"],
+    div[data-testid="stTab"][aria-selected="true"] [data-testid="stMarkdownContainer"] {
+        color: var(--verde-pino) !important;
+    }
+    /* El subrayado lo dibujamos nosotros: el indicador nativo de Streamlit
+       se pinta con una regla de emotion que gana a la cascada del tema. */
+    div[data-testid="stTab"] .react-aria-SelectionIndicator {
+        display: none !important;
+    }
+    div[data-testid="stTab"][aria-selected="true"] {
+        position: relative;
+    }
+    div[data-testid="stTab"][aria-selected="true"]::after {
+        content: "";
+        position: absolute;
+        left: 0.6rem;
+        right: 0.6rem;
+        bottom: 0;
+        height: 2px;
+        border-radius: 999px;
+        background: var(--verde-pino);
     }
     div.st-key-card_datos,
     div.st-key-card_maestro {
@@ -289,7 +450,7 @@ st.markdown("""
     }
     div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
         min-height: 76px;
-        background: #f7faf7;
+        background: var(--superficie);
         border: 1px dashed #9bbca5;
         border-radius: 0.5rem;
     }
@@ -406,8 +567,10 @@ if "progress_pct" not in st.session_state:
     st.session_state.progress_pct = 0.0
 if "progress_text" not in st.session_state:
     st.session_state.progress_text = ""
-if "progress_error" not in st.session_state:
+if "processing_error" not in st.session_state:
     st.session_state.progress_error = None
+if "_procesar_reservado" not in st.session_state:
+    st.session_state._procesar_reservado = False
 
 def _obtener_api_key_de_secrets() -> str:
     try:
@@ -782,6 +945,13 @@ def _generar_excel_resultado(df_resultado, kpis, linea, archivo_origen, hoja_ori
 # =====================================================================
 # SECCIÓN 3: ACCIÓN PRINCIPAL (PROCESAMIENTO)
 # =====================================================================
+def _reservar_procesamiento() -> None:
+    """Callback del botón: se ejecuta ANTES de la pasada que procesó el clic,
+    de modo que el botón ya se dibuja deshabilitado en esa misma pasada y no
+    queda abierta la ventana para un segundo clic."""
+    st.session_state._procesar_reservado = True
+
+
 st.write("")
 listo_para_procesar = (
     archivo_raw is not None and maestro_bytes is not None and hoja_raw_valida
@@ -794,15 +964,20 @@ procesar = st.button(
     type="primary",
     icon=":material/play_arrow:",
     width="stretch",
-    disabled=not listo_para_procesar,
+    disabled=not listo_para_procesar or bool(st.session_state.get("_procesar_reservado", False)),
+    on_click=_reservar_procesamiento,
 )
 
 if procesar:
+    # La reserva ya cumplió su papel (el botón salió deshabilitado en esta
+    # pasada). Se libera aquí para no dejar el CTA bloqueado si el proceso
+    # no llegara a arrancar; a partir de este momento protege processing_active.
+    st.session_state._procesar_reservado = False
     if st.session_state.get("processing_active"):
         st.warning(_t("⏳ Ya hay un procesamiento en curso. Espera a que termine."))
     else:
         if archivo_raw is None or maestro_bytes is None or hoja_raw is None:
-            st.warning("Falta un archivo o hoja válidos para procesar.")
+            st.warning(_t("Falta un archivo o hoja válidos para procesar."))
             st.stop()
 
         linea = st.session_state.get("linea_detectada", "Producto")
@@ -1108,7 +1283,7 @@ if st.session_state.get("proceso_completado") and st.session_state.df_resultado 
             )
 
         if kpis.get("errores", 0) > 0:
-            st.warning(f"⚠️ {kpis['errores']} descripciones tuvieron errores de conexión con Gemini.")
+            st.warning(_tf("⚠️ {} descripciones tuvieron errores de conexión con Gemini.", kpis["errores"]))
 
         st.write("")
 
