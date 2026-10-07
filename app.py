@@ -31,7 +31,7 @@ _TRADUCCIONES = {
         "Subir maestro de reglas de producto correspondiente": "Upload product rulebook",
         "Arrastra tu archivo maestro .xlsx aquí": "Drag your rulebook .xlsx file here",
         "📥 Sube tu maestro propio para habilitar el análisis.": "📥 Upload your own rulebook to enable analysis.",
-        "▶️ PROCESAR CLASIFICACIÓN": "▶️ RUN CLASSIFICATION",
+        "Iniciar clasificación": "Start classification",
         "⚠️ Se detectó que los resultados no están disponibles. Por favor, recarga la página o vuelve a procesar.": "⚠️ Results are unavailable. Please reload the page or run the classification again.",
         "Reglas deterministas": "Deterministic rules",
         "Error al leer el maestro: {}": "Error reading the rulebook: {}",
@@ -122,13 +122,23 @@ def _traducir_progreso(texto: str) -> str:
     return _TRADUCCIONES["English"].get(traduccion, _t(traduccion))
 
 
+# Logo oficial de Legrand (recortado y con transparencia en assets/).
+# Si el archivo no está, se cae al mark dibujado en CSS de abajo.
+_LEGRAND_LOGO = Path(__file__).resolve().parent / "assets" / "legrand_logo.png"
+
 _selector_izq, _selector_der = st.columns([5, 1])
 with _selector_izq:
-    st.markdown(
-        f'<div class="brand-mark"><span class="brand-icon"><span class="lg-l"></span></span>'
-        f'<span class="brand-name">Legrand</span></div>',
-        unsafe_allow_html=True,
-    )
+    if _LEGRAND_LOGO.exists():
+        # El contenedor con clave permite anular el radio que Streamlit
+        # aplica por tema a todas las imágenes.
+        with st.container(key="brand_logo"):
+            st.image(str(_LEGRAND_LOGO), width=132)
+    else:
+        st.markdown(
+            '<div class="brand-mark"><span class="brand-icon"><span class="lg-l"></span></span>'
+            '<span class="brand-name">Legrand</span></div>',
+            unsafe_allow_html=True,
+        )
 with _selector_der:
     st.selectbox(
         "Language / Idioma",
@@ -143,24 +153,40 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="google.generat
 # CSS personalizado para emular el diseño web (Botón principal grande y métricas con fondo)
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap');
 
-    /* Fondo general casi blanco para priorizar claridad y neutralidad */
+    :root {
+        --verde-pino: #155f43;
+        --verde-hoja: #27835b;
+        --verde-tinta: #173b2d;
+        --verde-borde: #d3e2d7;
+        --superficie: #ffffff;
+        --texto-secundario: #596b60;
+    }
+
+    /* Verde muy suave en el lienzo, cercano al blanco para no cansar la vista */
     html, body {
-        background: rgba(255, 255, 255, 0.96) !important;
+        background: linear-gradient(135deg, #f1f7f2 0%, #fbfdfb 50%, #f2f8f3 100%) fixed !important;
     }
     [data-testid="stAppViewContainer"] {
-        background: rgba(255, 255, 255, 0.96) !important;
+        background: transparent !important;
     }
     .stApp {
-        background: rgba(255, 255, 255, 0.96) !important;
+        min-height: 100vh;
+        background: transparent !important;
     }
     [data-testid="stHeader"] {
-        background: rgba(255, 255, 255, 0.94) !important;
+        background: rgba(251, 253, 251, 0.88) !important;
+        backdrop-filter: blur(12px);
         box-shadow: none;
     }
+    .block-container {
+        max-width: 1440px;
+        padding-top: 4rem;
+        padding-bottom: 3rem;
+    }
 
-    /* Tipografía uniforme en toda la app (misma familia que el título) */
+    /* Tipografía uniforme */
     html, body, [class*="css"], [data-testid="stAppViewContainer"],
     [data-testid="stHeader"], [data-testid="stSidebar"],
     .stMarkdown, .stCaption, .stSubheader, .stTitle, .stHeading,
@@ -176,7 +202,7 @@ st.markdown("""
     [data-testid="stHeading"] h2, [data-testid="stHeading"] h3,
     [data-testid="stHeading"] h4, [data-testid="stHeading"] h5,
     [data-testid="stHeading"] h6 {
-        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+        font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
     }
 
     /* Restaurar la fuente de iconos Material (no debe heredar Inter) */
@@ -188,17 +214,60 @@ st.markdown("""
     .stButton>button[kind="primary"],
     div[data-testid="stBaseButton-primary"] {
         height: 3.5rem;
-        font-size: 1.2rem;
-        font-weight: bold;
+        font-size: 1rem;
+        font-weight: 700;
+        color: #ffffff !important;
+        background: var(--verde-pino) !important;
+        border: 1px solid var(--verde-pino) !important;
         border-radius: 0.5rem;
+        box-shadow: 0 5px 14px rgba(21, 95, 67, 0.16);
+        transition: background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
     }
-    /* Tarjetas suaves para las métricas (testid vigente en Streamlit >= 1.29) */
+    .stButton>button[kind="primary"]:not(:disabled):hover,
+    div[data-testid="stBaseButton-primary"]:not(:has(button:disabled)):hover {
+        background: #104d36 !important;
+        border-color: #104d36 !important;
+        box-shadow: 0 7px 18px rgba(21, 95, 67, 0.22);
+        transform: translateY(-1px);
+    }
+    .stButton>button[kind="primary"]:disabled,
+    div[data-testid="stBaseButton-primary"] button:disabled {
+        color: #526b5c !important;
+        background: #dce9df !important;
+        border-color: #c6d9cb !important;
+        box-shadow: none;
+        opacity: 1;
+        cursor: not-allowed;
+    }
+    [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) {
+        background: #e8f2e9 !important;
+        border: 1px solid var(--verde-borde);
+        color: var(--verde-pino) !important;
+    }
+    [data-testid="stAlertContentInfo"] {
+        color: var(--verde-pino) !important;
+    }
+    div.st-key-card_datos,
+    div.st-key-card_maestro {
+        background: var(--superficie);
+        border: 1px solid var(--verde-borde) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 8px 24px rgba(29, 67, 45, 0.055);
+    }
+    div.st-key-card_datos h3,
+    div.st-key-card_maestro h3 {
+        color: var(--verde-tinta);
+        font-size: 1.18rem;
+        line-height: 1.35;
+    }
+
+    /* Métricas */
     div[data-testid="stMetric"] {
-        background-color: #f8fafc;
-        border: 1px solid #e2e8f0;
+        background-color: var(--superficie);
+        border: 1px solid var(--verde-borde);
         padding: 1rem;
-        border-radius: 0.5rem;
-        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(29, 67, 45, 0.055);
     }
     div[data-testid="stMetricValue"] {
         font-size: 1.25rem !important;
@@ -220,20 +289,28 @@ st.markdown("""
     }
     div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"] {
         min-height: 76px;
-        border: 1px dashed rgba(49, 51, 63, 0.25);
+        background: #f7faf7;
+        border: 1px dashed #9bbca5;
         border-radius: 0.5rem;
+    }
+    div[data-testid="stFileUploader"] [data-testid="stFileUploaderDropzone"]:hover {
+        background: #f0f7f1;
+        border-color: var(--verde-hoja);
     }
 
     /* Barra llamativa de identificación global */
     .kpi-bar { margin: 4px 0 2px; }
     .kpi-bar-head { display: flex; justify-content: flex-start; align-items: baseline; gap: 12px; margin-bottom: 10px; }
     .kpi-bar-label { font-size: .95rem; font-weight: 650; color: #162322; }
-    .kpi-bar-value { font-size: 1.6rem; font-weight: 800; color: #197a5a; letter-spacing: -.02em; }
-    .kpi-bar-track { height: 30px; background: #eef2ef; border: 1px solid #e2e8f0; border-radius: 999px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.06); }
-    .kpi-bar-fill { height: 100%; border-radius: 999px; background: #197a5a; box-shadow: 0 0 12px rgba(25,122,90,.35); transition: width .8s ease; }
-    .kpi-bar-caption { margin-top: 8px; font-size: .78rem; color: #63706d; }
+    .kpi-bar-value { font-size: 1.6rem; font-weight: 800; color: var(--verde-pino); }
+    .kpi-bar-track { height: 24px; background: #e4eee6; border: 1px solid var(--verde-borde); border-radius: 999px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,.05); }
+    .kpi-bar-fill { height: 100%; border-radius: 999px; background: var(--verde-hoja); box-shadow: 0 0 12px rgba(39,131,91,.28); transition: width .8s ease; }
+    .kpi-bar-caption { margin-top: 8px; font-size: .78rem; color: var(--texto-secundario); }
 
     /* Identidad de marca */
+    div.st-key-brand_logo img {
+        border-radius: 0 !important;
+    }
     .brand-mark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: #162322; }
     .brand-icon { position: relative; width: 36px; height: 36px; border-radius: 9px; background: #E60000; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(230,0,0,.3); }
     .brand-icon .lg-l { position: relative; width: 18px; height: 18px; }
@@ -242,17 +319,20 @@ st.markdown("""
     .brand-name { font-weight: 700; font-size: .95rem; }
 
     /* Hero */
-    .hero { display: flex; gap: 32px; padding: 12px 0 8px; }
+    .hero { display: flex; gap: 32px; padding: 1.5rem 1.75rem; margin: 8px 0 12px; background: var(--superficie); border: 1px solid var(--verde-borde); border-radius: 8px; box-shadow: 0 8px 24px rgba(29, 67, 45, 0.055); }
     .hero-main { width: 100%; }
-    .eyebrow { display: inline-flex; align-items: center; gap: 7px; background: #e2f1e9; border: 1px solid #c0e4d0; color: #12563f; text-transform: uppercase; letter-spacing: .1em; font-size: .72rem; font-weight: 800; padding: 5px 11px; border-radius: 999px; margin-bottom: 14px; }
-    .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: #197a5a; flex-shrink: 0; }
-    .hero h1 { margin: 0 0 14px; font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.02; letter-spacing: -.055em; color: #162322; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 7px; background: #e2eee5; border: 1px solid #c5d9ca; color: var(--verde-pino); text-transform: uppercase; letter-spacing: 0; font-size: .72rem; font-weight: 800; padding: 5px 11px; border-radius: 999px; margin-bottom: 14px; }
+    .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--verde-hoja); flex-shrink: 0; }
+    .hero h1 { margin: 0 0 14px; font-family: 'Inter', ui-sans-serif, sans-serif !important; font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1.02; letter-spacing: -.055em; color: #162322; }
     .hero h1 .hl { color: #197a5a; }
     .hero-benefits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
-    .hero-benefit { display: flex; align-items: flex-start; gap: 8px; font-size: .84rem; line-height: 1.4; color: #63706d; }
+    .hero-benefit { display: flex; align-items: flex-start; gap: 9px; font-size: .84rem; line-height: 1.45; color: var(--texto-secundario); }
     .hero-benefit i { flex-shrink: 0; font-style: normal; }
     @media (max-width: 768px) {
+        .block-container { padding-top: 3.5rem; padding-bottom: 2rem; }
+        .hero { padding: 1rem; }
         .hero-benefits { grid-template-columns: 1fr; }
+        .hero h1 { font-size: 2rem; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -470,7 +550,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.write("") # Espaciador
 
 # =====================================================================
 # TABS PRINCIPALES
@@ -493,7 +572,7 @@ with tab_clasificar:
     maestro_info = None
 
     with c_raw:
-        with st.container(border=True):
+        with st.container(border=True, key="card_datos"):
             st.subheader(_t("1. Archivo de Datos Crudos"))
             st.caption(_t("Sube el archivo Excel con las descripciones a analizar."))
             archivo_raw = st.file_uploader(_t("Arrastra tu archivo .xlsx aquí"), type=["xlsx"], label_visibility="collapsed")
@@ -548,7 +627,7 @@ with tab_clasificar:
                 hoja_raw = None
 
     with c_maestro:
-        with st.container(border=True):
+        with st.container(border=True, key="card_maestro"):
             st.subheader(_t("2. Maestro de Reglas"))
             st.caption(_t("Subir maestro de reglas de producto correspondiente"))
 
@@ -711,8 +790,9 @@ listo_para_procesar = (
 )
 
 procesar = st.button(
-    _t("▶️ PROCESAR CLASIFICACIÓN"),
+    _t("Iniciar clasificación"),
     type="primary",
+    icon=":material/play_arrow:",
     width="stretch",
     disabled=not listo_para_procesar,
 )
@@ -925,10 +1005,10 @@ st.markdown(
     """
     <style>
         div.st-key-resultados {
-            background-color: #eaf7ea;
-            border: 1px solid #b7e1b7;
-            border-radius: 12px;
-            padding: 1.2rem;
+            background-color: transparent;
+            border: 0;
+            border-radius: 0;
+            padding: 0;
         }
     </style>
     """,
@@ -936,7 +1016,7 @@ st.markdown(
 )
 
 if st.session_state.get("proceso_completado") and st.session_state.df_resultado is not None:
-    with st.container(border=True, key="resultados"):
+    with st.container(key="resultados"):
         st.write("")
         st.divider()
 
