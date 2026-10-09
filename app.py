@@ -1,4 +1,5 @@
 import sys
+import time
 import warnings
 import threading
 from pathlib import Path
@@ -711,6 +712,49 @@ def _mensaje_columnas_no_reconocidas(columnas) -> str:
 # =====================================================================
 # ENCABEZADO
 # =====================================================================
+# La barra de progreso vive aquí, arriba del todo: si se pintara junto al
+# botón quedaría en el borde inferior de la pantalla y no se vería sin
+# hacer scroll, que es justo lo que hace pasar por "app congelada".
+@st.fragment(run_every="500ms")
+def _fragmento_progreso_rerun():
+    """Refresca la barra mientras el hilo de trabajo avanza."""
+    _sh = st.session_state.get("_thread_shared")
+    if _sh is None:
+        return
+
+    if not st.session_state.get("processing_active", False):
+        # En la pasada del clic el hilo aún no arrancó. Se dibuja el 0 % para
+        # que el fragmento quede registrado y se refresque solo después; si no,
+        # nunca se registraría y la barra se quedaría congelada.
+        if st.session_state.get("_procesar_reservado", False):
+            st.progress(0.0, text=_t("Preparando procesamiento..."))
+        return
+
+    st.session_state.progress_pct = _sh.get("progress_pct", 0.0)
+    st.session_state.progress_text = _sh.get("progress_text", "Iniciando...")
+    st.session_state.progress_error = _sh.get("progress_error")
+
+    if _sh.get("done"):
+        st.session_state.df_resultado = _sh.get("df_resultado")
+        st.session_state.df_pendientes = _sh.get("df_pendientes")
+        st.session_state.kpis = _sh.get("kpis")
+        st.session_state.maestro_opt_data = _sh.get("maestro_opt_data")
+        st.session_state.resumen_opt = _sh.get("resumen_opt")
+        st.session_state.df_export_data = None
+        st.session_state.proceso_completado = True
+        st.session_state.processing_active = False
+        st.session_state.processing_done = True
+        if not st.session_state.get("_rerun_triggered"):
+            st.session_state._rerun_triggered = True
+            st.rerun()
+        return
+
+    pct = st.session_state.get("progress_pct", 0.0)
+    texto = st.session_state.get("progress_text", "Iniciando...")
+    reloj = _sh.get("progress_reloj", "")
+    st.progress(pct, text=f"{_traducir_progreso(texto)}{reloj}")
+
+
 st.markdown(
     f"""
     <div class="hero">
@@ -727,6 +771,14 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# La barra se pinta justo debajo del hero. El flag de reserva se activa en el
+# on_click del botón, antes de esta línea, así que el fragmento ya queda
+# registrado en la pasada del clic y su refresco automático se programa.
+if st.session_state.get("_procesar_reservado", False) or st.session_state.get(
+    "processing_active", False
+):
+    _fragmento_progreso_rerun()
 
 # =====================================================================
 # TABS PRINCIPALES
@@ -959,47 +1011,11 @@ def _generar_excel_resultado(df_resultado, kpis, linea, archivo_origen, hoja_ori
 # =====================================================================
 # SECCIÓN 3: ACCIÓN PRINCIPAL (PROCESAMIENTO)
 # =====================================================================
-@st.fragment(run_every="500ms")
-def _fragmento_progreso_rerun():
-    """Refresca la barra mientras el hilo de trabajo avanza.
-
-    Se declara aquí (y no en una sección posterior) para poder pintarla
-    encima del botón: es donde el usuario está mirando tras hacer clic.
-    """
-    _sh = st.session_state.get("_thread_shared")
-    if _sh is None:
-        return
-
-    if not st.session_state.get("processing_active", False):
-        # En la pasada del clic el hilo aún no arrancó. Se dibuja el 0 % para
-        # que el fragmento quede registrado y se refresque solo después; si no,
-        # nunca se registraría y la barra se quedaría congelada.
-        if st.session_state.get("_procesar_reservado", False):
-            st.progress(0.0, text=_t("Preparando procesamiento..."))
-        return
-
-    st.session_state.progress_pct = _sh.get("progress_pct", 0.0)
-    st.session_state.progress_text = _sh.get("progress_text", "Iniciando...")
-    st.session_state.progress_error = _sh.get("progress_error")
-
-    if _sh.get("done"):
-        st.session_state.df_resultado = _sh.get("df_resultado")
-        st.session_state.df_pendientes = _sh.get("df_pendientes")
-        st.session_state.kpis = _sh.get("kpis")
-        st.session_state.maestro_opt_data = _sh.get("maestro_opt_data")
-        st.session_state.resumen_opt = _sh.get("resumen_opt")
-        st.session_state.df_export_data = None
-        st.session_state.proceso_completado = True
-        st.session_state.processing_active = False
-        st.session_state.processing_done = True
-        if not st.session_state.get("_rerun_triggered"):
-            st.session_state._rerun_triggered = True
-            st.rerun()
-        return
 
     pct = st.session_state.get("progress_pct", 0.0)
     texto = st.session_state.get("progress_text", "Iniciando...")
-    st.progress(pct, text=_traducir_progreso(texto))
+    reloj = _sh.get("progress_reloj", "")
+    st.progress(pct, text=f"{_traducir_progreso(texto)}{reloj}")
 
 
 def _reservar_procesamiento() -> None:
@@ -1015,15 +1031,6 @@ listo_para_procesar = (
     and (not usar_ia or api_key)
     and not st.session_state.get("processing_active", False)
 )
-
-# La barra se dibuja ENCIMA del botón: tras el clic el usuario sigue mirando
-# esa zona, y más abajo quedaba fuera de la ventana. El flag de reserva se
-# activa en el on_click, antes de esta línea, así que el fragmento ya se
-# registra en la pasada del clic y su refresco automático queda programado.
-if st.session_state.get("_procesar_reservado", False) or st.session_state.get(
-    "processing_active", False
-):
-    _fragmento_progreso_rerun()
 
 procesar = st.button(
     _t("Iniciar clasificación"),
@@ -1065,6 +1072,7 @@ if procesar:
             "progress_pct": 0.0,
             "progress_text": "Preparando procesamiento...",
             "progress_error": None,
+            "started_at": time.time(),
             "done": False,
             "result": None,
         }
@@ -1088,19 +1096,37 @@ if procesar:
                         api_key=_api_key, maestro=_maestro, rpm_limite=_rpm, modelo=_modelo
                     )
 
+                # El texto se reescribe en el hilo worker (no en el fragmento): así el
+                # reloj y el porcentaje siguen avanzando aunque el repintado de
+                # la barra llegue a ratos, que es lo que hace Streamlit.
+                _ultimo_pct = {"v": -1.0}
+
                 def _cb_progreso(fase, i, total):
                     if not total or total <= 0:
                         return
                     pct = min(i / total, 1.0)
-                    if fase == "reglas":
-                        if _usar_ia:
-                            txt = f"Fase 1/2 · Reglas: {i:,} de {total:,} filas ({pct:.1%})"
-                        else:
-                            txt = f"Reglas: {i:,} de {total:,} filas ({pct:.1%})"
-                    else:
-                        txt = f"Fase 2/2 · IA: {i:,} de {total:,} descripciones ({pct:.1%})"
                     _shared["progress_pct"] = pct
-                    _shared["progress_text"] = txt
+
+                    if pct - _ultimo_pct["v"] >= 0.005 or pct >= 1.0:
+                        _ultimo_pct["v"] = pct
+                        if fase == "reglas":
+                            base_txt = (
+                                f"Fase 1/2 · Reglas: {i:,} de {total:,} filas"
+                                if _usar_ia
+                                else f"Reglas: {i:,} de {total:,} filas"
+                            )
+                        else:
+                            base_txt = f"Fase 2/2 · IA: {i:,} de {total:,} descripciones"
+                        _shared["progress_text"] = f"{base_txt} ({pct:.1%})"
+
+                        # Reloj y estimado: los calcula el worker, que nunca
+                        # se detiene, así que siempre reflejan el tiempo real.
+                        _elapsed = int(time.time() - _shared["started_at"])
+                        _mm, _ss = divmod(_elapsed, 60)
+                        _resto = ""
+                        if pct > 0.02 and _elapsed > 3:
+                            _resto = f" · ~{(_elapsed / pct - _elapsed) / 60:.0f}m restantes"
+                        _shared["progress_reloj"] = f" · {_mm}m{_ss:02d}s{_resto}"
 
                 try:
                     _df_resultado = procesar_dataframe_dinamico(
