@@ -2,6 +2,7 @@ import sys
 import time
 import warnings
 import threading
+import multiprocessing as mp
 from pathlib import Path
 from io import BytesIO
 from datetime import datetime
@@ -341,7 +342,6 @@ st.markdown("""
         background: #104d36 !important;
         border-color: #104d36 !important;
         box-shadow: 0 7px 18px rgba(21, 95, 67, 0.22);
-        transform: translateY(-1px);
     }
     .stButton>button[kind="primary"]:disabled,
     div[data-testid="stBaseButton-primary"] button:disabled {
@@ -528,6 +528,7 @@ from src.ia_rescate import RescatadorIA, GENAI_DISPONIBLE
 from src.maestro_optimizer import guardar_maestro_optimizado
 from src.texto_utils import identificar_columnas_descripcion
 from src.excel_estilos import aplicar_estilo_hoja_excel
+from src.worker_pipeline import ejecutar_pipeline
 from src import config
 
 # ---------------------------------------------------------------------
@@ -717,12 +718,53 @@ def _mensaje_columnas_no_reconocidas(columnas) -> str:
 # hacer scroll, que es justo lo que hace pasar por "app congelada".
 @st.fragment(run_every="500ms")
 def _fragmento_progreso_rerun():
-    """Refresca la barra mientras el hilo de trabajo avanza."""
+    """Refresca la barra mientras el trabajo avanza."""
     _sh = st.session_state.get("_thread_shared")
     if _sh is None:
         return
 
+    # Con proceso aparte, el progreso llega por la cola.
+    _cola = st.session_state.get("_cola")
+    if _cola is not None:
+        while True:
+            try:
+                _msg = _cola.get_nowait()
+            except Exception:
+                break
+            _tipo = _msg[0]
+            if _tipo == "progreso":
+                _fase, _i, _total = _msg[1], _msg[2], _msg[3]
+                if _total and _total > 0:
+                    _pct = min(_i / _total, 1.0)
+                    _sh["progress_pct"] = _pct
+                    if _fase == "reglas":
+                        _base = f"Reglas: {_i:,} de {_total:,} filas"
+                    else:
+                        _base = f"Fase 2/2 · IA: {_i:,} de {_total:,} descripciones"
+                    _sh["progress_text"] = f"{_base} ({_pct:.1%})"
+                    _el = int(time.time() - _sh.get("started_at", time.time()))
+                    _mm, _ss = divmod(_el, 60)
+                    _resto = (
+                        f" · ~{(_el / _pct - _el) / 60:.0f}m restantes"
+                        if _pct > 0.02 and _el > 3 else ""
+                    )
+                    _sh["progress_reloj"] = f" · {_mm}m{_ss:02d}s{_resto}"
+            elif _tipo == "fin":
+                _sh["df_resultado"] = _msg[1]
+                _sh["kpis"] = _msg[2]
+                _sh["df_pendientes"] = _msg[3]
+                _sh["progress_pct"] = 1.0
+                _sh["progress_text"] = "✅ Completado · Solo reglas deterministas"
+                _sh["done"] = True
+            elif _tipo == "error":
+                _sh["progress_error"] = _msg[1]
+                _sh["progress_text"] = f"❌ Error: {_msg[1]}"
+                _sh["done"] = True
+
     if not st.session_state.get("processing_active", False):
+        if st.session_state.get("_procesar_reservado", False):
+            st.progress(0.0, text=_t("Preparando procesamiento..."))
+        return
         # En la pasada del clic el hilo aún no arrancó. Se dibuja el 0 % para
         # que el fragmento quede registrado y se refresque solo después; si no,
         # nunca se registraría y la barra se quedaría congelada.
@@ -1213,12 +1255,31 @@ if procesar:
             finally:
                 _shared["done"] = True
 
-        _thread = threading.Thread(
-            target=_procesar_en_hilo,
-            args=(_shared, df_raw_bytes, maestro_bytes, hoja_raw, usar_ia, api_key, rpm_limite, modelo_ia),
-            daemon=True,
-        )
-        _thread.start()
+        # El pipeline se ejecuta en un PROCESO independiente cuando el sistema
+        # lo permite (fork). En un hilo, el trabajo CPU-bound comparte el GIL
+        # con el servidor y, en instancias de un solo nucleo como Streamlit
+        # Cloud gratuito, la interfaz se congela por completo.
+        _usa_proceso = "fork" in mp.get_all_start_methods()
+
+        if _usa_proceso:
+            _cola = mp.get_context("fork").Queue()
+            _proceso = mp.get_context("fork").Process(
+                target=ejecutar_pipeline,
+                args=(_cola, df_raw_bytes, maestro_bytes, hoja_raw),
+                daemon=True,
+            )
+            st.session_state._cola = _cola
+            st.session_state._proceso = _proceso
+            _proceso.start()
+        else:
+            # Windows no ofrece fork y "spawn" reimportaria este script en el
+            # hijo; en local el hilo basta porque hay varios nucleos.
+            _thread = threading.Thread(
+                target=_procesar_en_hilo,
+                args=(_shared, df_raw_bytes, maestro_bytes, hoja_raw, usar_ia, api_key, rpm_limite, modelo_ia),
+                daemon=True,
+            )
+            _thread.start()
 
 # =====================================================================
 # SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)
