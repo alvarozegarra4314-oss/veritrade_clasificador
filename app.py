@@ -435,13 +435,27 @@ st.markdown("""
         line-height: 1.2;
         overflow-wrap: anywhere;
     }
-    /* Barra de progreso de procesamiento más gruesa */
-    div[data-testid="stProgress"] > div {
-        height: 1rem;
-    }
+    /* Barra de progreso: Streamlit la pinta con su azul por defecto, así que
+       se recolorean la pista y el relleno para que encajen con el tema. */
     div[data-testid="stProgress"] [role="progressbar"] {
-        height: 1rem;
+        height: 0.75rem;
         border-radius: 999px;
+        overflow: hidden;
+        background: transparent;
+    }
+    div[data-testid="stProgress"] [role="progressbar"] > div {
+        background: #e4eee6;
+        border-radius: 999px;
+    }
+    div[data-testid="stProgress"] [role="progressbar"] > div > div {
+        background: var(--verde-hoja);
+        border-radius: 999px;
+        transition: width 300ms ease;
+    }
+    div[data-testid="stProgress"] p {
+        font-size: 0.92rem;
+        font-weight: 650;
+        color: var(--verde-tinta);
     }
     /* Evitar sobreposicionamiento de file uploaders */
     div[data-testid="stFileUploader"] {
@@ -945,6 +959,49 @@ def _generar_excel_resultado(df_resultado, kpis, linea, archivo_origen, hoja_ori
 # =====================================================================
 # SECCIÓN 3: ACCIÓN PRINCIPAL (PROCESAMIENTO)
 # =====================================================================
+@st.fragment(run_every="500ms")
+def _fragmento_progreso_rerun():
+    """Refresca la barra mientras el hilo de trabajo avanza.
+
+    Se declara aquí (y no en una sección posterior) para poder pintarla
+    encima del botón: es donde el usuario está mirando tras hacer clic.
+    """
+    _sh = st.session_state.get("_thread_shared")
+    if _sh is None:
+        return
+
+    if not st.session_state.get("processing_active", False):
+        # En la pasada del clic el hilo aún no arrancó. Se dibuja el 0 % para
+        # que el fragmento quede registrado y se refresque solo después; si no,
+        # nunca se registraría y la barra se quedaría congelada.
+        if st.session_state.get("_procesar_reservado", False):
+            st.progress(0.0, text=_t("Preparando procesamiento..."))
+        return
+
+    st.session_state.progress_pct = _sh.get("progress_pct", 0.0)
+    st.session_state.progress_text = _sh.get("progress_text", "Iniciando...")
+    st.session_state.progress_error = _sh.get("progress_error")
+
+    if _sh.get("done"):
+        st.session_state.df_resultado = _sh.get("df_resultado")
+        st.session_state.df_pendientes = _sh.get("df_pendientes")
+        st.session_state.kpis = _sh.get("kpis")
+        st.session_state.maestro_opt_data = _sh.get("maestro_opt_data")
+        st.session_state.resumen_opt = _sh.get("resumen_opt")
+        st.session_state.df_export_data = None
+        st.session_state.proceso_completado = True
+        st.session_state.processing_active = False
+        st.session_state.processing_done = True
+        if not st.session_state.get("_rerun_triggered"):
+            st.session_state._rerun_triggered = True
+            st.rerun()
+        return
+
+    pct = st.session_state.get("progress_pct", 0.0)
+    texto = st.session_state.get("progress_text", "Iniciando...")
+    st.progress(pct, text=_traducir_progreso(texto))
+
+
 def _reservar_procesamiento() -> None:
     """Callback del botón: se ejecuta ANTES de la pasada que procesó el clic,
     de modo que el botón ya se dibuja deshabilitado en esa misma pasada y no
@@ -958,6 +1015,15 @@ listo_para_procesar = (
     and (not usar_ia or api_key)
     and not st.session_state.get("processing_active", False)
 )
+
+# La barra se dibuja ENCIMA del botón: tras el clic el usuario sigue mirando
+# esa zona, y más abajo quedaba fuera de la ventana. El flag de reserva se
+# activa en el on_click, antes de esta línea, así que el fragmento ya se
+# registra en la pasada del clic y su refresco automático queda programado.
+if st.session_state.get("_procesar_reservado", False) or st.session_state.get(
+    "processing_active", False
+):
+    _fragmento_progreso_rerun()
 
 procesar = st.button(
     _t("Iniciar clasificación"),
@@ -1127,44 +1193,6 @@ if procesar:
             daemon=True,
         )
         _thread.start()
-
-
-# =====================================================================
-# SECCIÓN 3b: INDICADOR DE PROCESAMIENTO (se muestra en reruns posteriores)
-# =====================================================================
-@st.fragment(run_every="500ms")
-def _fragmento_progreso_rerun():
-    _sh = st.session_state.get("_thread_shared")
-    if _sh is None or not st.session_state.get("processing_active", False):
-        return
-
-    st.session_state.progress_pct = _sh.get("progress_pct", 0.0)
-    st.session_state.progress_text = _sh.get("progress_text", "Iniciando...")
-    st.session_state.progress_error = _sh.get("progress_error")
-
-    if _sh.get("done"):
-        st.session_state.df_resultado = _sh.get("df_resultado")
-        st.session_state.df_pendientes = _sh.get("df_pendientes")
-        st.session_state.kpis = _sh.get("kpis")
-        st.session_state.maestro_opt_data = _sh.get("maestro_opt_data")
-        st.session_state.resumen_opt = _sh.get("resumen_opt")
-        st.session_state.df_export_data = None
-        st.session_state.proceso_completado = True
-        st.session_state.processing_active = False
-        st.session_state.processing_done = True
-        if not st.session_state.get("_rerun_triggered"):
-            st.session_state._rerun_triggered = True
-            st.rerun()
-        return
-
-    pct = st.session_state.get("progress_pct", 0.0)
-    texto = st.session_state.get("progress_text", "Iniciando...")
-    st.progress(pct, text=_traducir_progreso(texto))
-
-
-if st.session_state.get("processing_active", False):
-    st.write("")
-    _fragmento_progreso_rerun()
 
 # =====================================================================
 # SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)
