@@ -844,7 +844,7 @@ st.markdown(
 # La pestaña "Crear Maestro" está OCULTA temporalmente (no se elimina).
 # Para reactivarla: vuelve a agregar "🔧 Crear Maestro" a la lista y
 # cambia "if False" por "with tab_crear" en la SECCIÓN 5.
-tab_clasificar = st.tabs([_t("📊 Clasificar Importaciones")])[0]
+tab_clasificar = st.tabs(tabs=[_t("📊 Clasificar Importaciones")])[0]
 
 with tab_clasificar:
     # =====================================================================
