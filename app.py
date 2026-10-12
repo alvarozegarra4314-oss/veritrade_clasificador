@@ -1,16 +1,11 @@
 import sys
 import time
 import warnings
-import threading
-import multiprocessing as mp
-
-# En Linux usamos forkserver para no heredar locks de los hilos de Streamlit;
-# Windows usa un hilo porque spawn reimportaría este script en el proceso hijo.
-_METODOS_MP = mp.get_all_start_methods()
-_USA_PROCESO = "fork" in _METODOS_MP
-if _USA_PROCESO:
-    _METODO_PROCESO = "forkserver" if "forkserver" in _METODOS_MP else "fork"
-    mp.set_start_method(_METODO_PROCESO, force=True)
+import json
+import pickle
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from io import BytesIO
 from datetime import datetime
@@ -536,7 +531,6 @@ from src.ia_rescate import RescatadorIA, GENAI_DISPONIBLE
 from src.maestro_optimizer import guardar_maestro_optimizado
 from src.texto_utils import identificar_columnas_descripcion
 from src.excel_estilos import aplicar_estilo_hoja_excel
-from src.worker_pipeline import ejecutar_pipeline
 from src import config
 
 # ---------------------------------------------------------------------
@@ -693,6 +687,71 @@ def _vista_previa_cruda(bytes_raw: bytes, hoja: str) -> pd.DataFrame:
     return pd.read_excel(BytesIO(bytes_raw), sheet_name=hoja, nrows=5)
 
 
+def _iniciar_worker_subprocess(bytes_raw: bytes, bytes_maestro: bytes, hoja: str):
+    directorio = Path(tempfile.mkdtemp(prefix="clasificador-veritrade-"))
+    ruta_raw = directorio / "datos.xlsx"
+    ruta_maestro = directorio / "maestro.xlsx"
+    ruta_resultado = directorio / "resultado.pkl"
+    ruta_estado = directorio / "estado.json"
+    ruta_log = directorio / "worker.log"
+
+    comando = [
+        sys.executable, "-m", "src.worker_pipeline",
+        "--raw", str(ruta_raw),
+        "--maestro", str(ruta_maestro),
+        "--hoja", hoja,
+        "--resultado", str(ruta_resultado),
+        "--estado", str(ruta_estado),
+    ]
+    try:
+        ruta_raw.write_bytes(bytes_raw)
+        ruta_maestro.write_bytes(bytes_maestro)
+        ruta_estado.write_text(
+            json.dumps({
+                "state": "starting",
+                "phase": "startup",
+                "progress_pct": 0.0,
+                "message": "Iniciando proceso de clasificación...",
+                "updated_at": time.time(),
+            }),
+            encoding="utf-8",
+        )
+        with ruta_log.open("wb") as archivo_log:
+            proceso = subprocess.Popen(
+                comando,
+                cwd=BASE_DIR,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=archivo_log,
+            )
+    except Exception:
+        shutil.rmtree(directorio, ignore_errors=True)
+        raise
+
+    return proceso, directorio, ruta_estado, ruta_resultado, ruta_log
+
+
+def _terminar_worker(proceso) -> None:
+    try:
+        proceso.terminate()
+        proceso.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proceso.kill()
+        try:
+            proceso.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    except OSError:
+        pass
+
+
+def _leer_log_worker(ruta_log: Path) -> str:
+    try:
+        return ruta_log.read_text(encoding="utf-8", errors="replace")[-3000:].strip()
+    except OSError:
+        return ""
+
+
 def _mensaje_columnas_no_reconocidas(columnas) -> str:
     """Mensaje accionable cuando la hoja no tiene columnas de descripción."""
     lista_cols = ", ".join(map(str, list(columnas)[:15])) + (" ..." if len(columnas) > 15 else "")
@@ -733,52 +792,59 @@ def _fragmento_progreso_rerun():
             st.progress(0.0, text=_t("Preparando procesamiento..."))
         return
 
-    # Con proceso aparte, el progreso llega por la cola.
-    _cola = st.session_state.get("_cola")
-    if _cola is not None:
-        while True:
+    _proceso = st.session_state.get("_worker_process")
+    if _proceso is not None and not _sh.get("done"):
+        _ruta_estado = Path(st.session_state._worker_status_path)
+        _ruta_resultado = Path(st.session_state._worker_result_path)
+        _ruta_log = Path(st.session_state._worker_log_path)
+        try:
+            _estado = json.loads(_ruta_estado.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            _estado = {}
+
+        if _estado:
+            _sh["progress_pct"] = _estado.get("progress_pct", 0.0)
+            _sh["progress_text"] = _estado.get("message", "Iniciando...")
+
+        _estado_worker = _estado.get("state")
+        _codigo_salida = _proceso.poll()
+        if _estado_worker == "completed" and _codigo_salida is not None:
             try:
-                _msg = _cola.get_nowait()
-            except Exception:
-                break
-            _tipo = _msg[0]
-            if _tipo == "progreso":
-                _fase, _i, _total = _msg[1], _msg[2], _msg[3]
-                if _total and _total > 0:
-                    _pct = min(_i / _total, 1.0)
-                    _sh["progress_pct"] = _pct
-                    if _fase == "reglas":
-                        _base = f"Reglas: {_i:,} de {_total:,} filas"
-                    else:
-                        _base = f"Fase 2/2 · IA: {_i:,} de {_total:,} descripciones"
-                    _sh["progress_text"] = f"{_base} ({_pct:.1%})"
-                    _el = int(time.time() - _sh.get("started_at", time.time()))
-                    _mm, _ss = divmod(_el, 60)
-                    _resto = (
-                        f" · ~{(_el / _pct - _el) / 60:.0f}m restantes"
-                        if _pct > 0.02 and _el > 3 else ""
-                    )
-                    _sh["progress_reloj"] = f" · {_mm}m{_ss:02d}s{_resto}"
-            elif _tipo == "fin":
-                _sh["df_resultado"] = _msg[1]
-                _sh["kpis"] = _msg[2]
-                _sh["df_pendientes"] = _msg[3]
+                with _ruta_resultado.open("rb") as _archivo_resultado:
+                    _sh.update(pickle.load(_archivo_resultado))
                 _sh["progress_pct"] = 1.0
                 _sh["progress_text"] = "✅ Completado · Solo reglas deterministas"
                 _sh["done"] = True
-            elif _tipo == "error":
-                _sh["progress_error"] = _msg[1]
-                _sh["progress_text"] = f"❌ Error: {_msg[1]}"
+            except Exception as _error_resultado:
+                _sh["progress_error"] = f"No se pudo leer el resultado: {_error_resultado}"
+                _sh["progress_text"] = f"❌ Error: {_sh['progress_error']}"
                 _sh["done"] = True
-
-        _proceso = st.session_state.get("_proceso")
-        if _proceso is not None and not _sh.get("done") and not _proceso.is_alive():
-            _codigo_salida = _proceso.exitcode
+        elif _estado_worker == "error" and _codigo_salida is not None:
+            _sh["progress_error"] = _estado.get("message", "El worker informó un error.")
+            _sh["progress_text"] = f"❌ Error: {_sh['progress_error']}"
+            _sh["done"] = True
+        elif _codigo_salida is not None:
+            _detalle = _leer_log_worker(_ruta_log)
             _sh["progress_error"] = (
-                f"El proceso de clasificación terminó sin devolver resultados (código {_codigo_salida})."
+                f"El worker terminó sin resultado (código {_codigo_salida})."
+                + (f" Detalle: {_detalle}" if _detalle else "")
             )
             _sh["progress_text"] = f"❌ Error: {_sh['progress_error']}"
             _sh["done"] = True
+        else:
+            _actualizado = _estado.get("updated_at", _sh.get("started_at", time.time()))
+            _fase = _estado.get("phase", "startup")
+            _limite_sin_latido = 300 if _fase in ("startup", "read") else 90
+            _tiempo_total = time.time() - _sh.get("started_at", time.time())
+            _tiempo_sin_latido = time.time() - _actualizado
+            if _tiempo_total > 1800 or _tiempo_sin_latido > _limite_sin_latido:
+                _terminar_worker(_proceso)
+                _sh["progress_error"] = (
+                    "El worker no reportó actividad dentro del tiempo esperado; "
+                    "se canceló para liberar la aplicación."
+                )
+                _sh["progress_text"] = f"❌ Error: {_sh['progress_error']}"
+                _sh["done"] = True
 
     if not st.session_state.get("processing_active", False):
         if st.session_state.get("_procesar_reservado", False):
@@ -808,6 +874,14 @@ def _fragmento_progreso_rerun():
         st.session_state.processing_error = _sh.get("progress_error")
         st.session_state.processing_active = False
         st.session_state.processing_done = True
+        _directorio_worker = st.session_state.get("_worker_dir")
+        if _directorio_worker:
+            shutil.rmtree(_directorio_worker, ignore_errors=True)
+        for _clave_worker in (
+            "_worker_process", "_worker_dir", "_worker_status_path",
+            "_worker_result_path", "_worker_log_path",
+        ):
+            st.session_state.pop(_clave_worker, None)
         if not st.session_state.get("_rerun_triggered"):
             st.session_state._rerun_triggered = True
             st.rerun()
@@ -1147,165 +1221,23 @@ if procesar:
         st.session_state.proceso_completado = False
         st.session_state._rerun_triggered = False
 
-        def _procesar_en_hilo(_shared, _raw_bytes, _maestro_bytes, _hoja, _usar_ia, _api_key, _rpm, _modelo):
-            """Wrapper que ejecuta el pipeline completo en un hilo background.
-            Solo escribe en _shared (dict), NUNCA en st.session_state."""
-            try:
-                _df_raw, _maestro = ejecutar_pipeline_reglas_cached(
-                    _raw_bytes, _maestro_bytes, _hoja
-                )
-
-                _rescatador = None
-                if _usar_ia and _api_key:
-                    _rescatador = RescatadorIA(
-                        api_key=_api_key, maestro=_maestro, rpm_limite=_rpm, modelo=_modelo
-                    )
-
-                # El texto se reescribe en el hilo worker (no en el fragmento): así el
-                # reloj y el porcentaje siguen avanzando aunque el repintado de
-                # la barra llegue a ratos, que es lo que hace Streamlit.
-                _ultimo_pct = {"v": -1.0}
-
-                def _cb_progreso(fase, i, total):
-                    if not total or total <= 0:
-                        return
-                    pct = min(i / total, 1.0)
-                    _shared["progress_pct"] = pct
-
-                    if pct - _ultimo_pct["v"] >= 0.005 or pct >= 1.0:
-                        _ultimo_pct["v"] = pct
-                        if fase == "reglas":
-                            base_txt = (
-                                f"Fase 1/2 · Reglas: {i:,} de {total:,} filas"
-                                if _usar_ia
-                                else f"Reglas: {i:,} de {total:,} filas"
-                            )
-                        else:
-                            base_txt = f"Fase 2/2 · IA: {i:,} de {total:,} descripciones"
-                        _shared["progress_text"] = f"{base_txt} ({pct:.1%})"
-
-                        # Reloj y estimado: los calcula el worker, que nunca
-                        # se detiene, así que siempre reflejan el tiempo real.
-                        _elapsed = int(time.time() - _shared["started_at"])
-                        _mm, _ss = divmod(_elapsed, 60)
-                        _resto = ""
-                        if pct > 0.02 and _elapsed > 3:
-                            _resto = f" · ~{(_elapsed / pct - _elapsed) / 60:.0f}m restantes"
-                        _shared["progress_reloj"] = f" · {_mm}m{_ss:02d}s{_resto}"
-
-                try:
-                    _df_resultado = procesar_dataframe_dinamico(
-                        _df_raw, _maestro, rescatador_ia=_rescatador, progreso_callback=_cb_progreso
-                    )
-                finally:
-                    if _rescatador is not None:
-                        _rescatador.cerrar()
-
-                if _rescatador is not None:
-                    _desde_cache = (
-                        _rescatador.descripciones_desde_cache_mem
-                        + _rescatador.descripciones_desde_cache_db
-                    )
-                    _via_api = _rescatador.descripciones_rescatadas_api
-                    if _via_api == 0 and _desde_cache == 0:
-                        _texto_final = "✅ Completado · Las reglas resolvieron todo"
-                    elif _via_api == 0:
-                        _texto_final = (
-                            f"✅ Completado · Caché IA: {_desde_cache:,} (sin gastar cuota)"
-                        )
-                    else:
-                        _texto_final = (
-                            f"✅ Completado · IA rescató {_via_api:,} "
-                            f"(+{_desde_cache:,} desde caché)"
-                        )
-                else:
-                    _texto_final = "✅ Completado · Solo reglas deterministas"
-
-                _shared["progress_pct"] = 1.0
-                _shared["progress_text"] = _texto_final
-
-                _total_filas = len(_df_resultado)
-                _kpis = {
-                    "total": _total_filas, "rescatados": 0, "cache": 0, "nuevas": 0, "errores": 0,
-                    "con_producto": 0, "sin_producto": 0, "sin_marca": 0, "pendientes": 0,
-                }
-
-                _var_principal = _maestro.variable_producto_principal
-                if _var_principal in _df_resultado:
-                    _kpis["con_producto"] = int(_df_resultado[_var_principal].notna().sum())
-                    _kpis["sin_producto"] = int(_df_resultado[_var_principal].isna().sum())
-
-                if "Marca_Extraida" in _df_resultado:
-                    _kpis["sin_marca"] = int(
-                        _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER).sum()
-                    )
-
-                # Pendientes de revisión = filas SIN producto Y SIN marca (ambos faltan)
-                _pend_mask = pd.Series(False, index=_df_resultado.index)
-                if _var_principal in _df_resultado and "Marca_Extraida" in _df_resultado:
-                    _pend_mask = (
-                        _df_resultado[_var_principal].isna()
-                        & _df_resultado["Marca_Extraida"].astype(str).str.upper().isin(VALORES_MARCA_SIN_RESOLVER)
-                    )
-                _kpis["pendientes"] = int(_pend_mask.sum())
-
-                if _rescatador is not None:
-                    _kpis["rescatados"] = _rescatador.descripciones_rescatadas_api
-                    _kpis["cache"] = _rescatador.llamadas_desde_cache
-                    _kpis["errores"] = _rescatador.errores
-
-                _maestro_opt_data = None
-                _resumen_opt = None
-                if _rescatador is not None:
-                    _propuestas = getattr(_rescatador, "propuestas_aprendizaje", None)
-                    if _propuestas and (_propuestas.get("nuevas_marcas") or _propuestas.get("nuevas_caracteristicas")):
-                        _buf_opt = BytesIO()
-                        _resumen_opt = guardar_maestro_optimizado(
-                            ruta_maestro_original=BytesIO(_maestro_bytes), propuestas=_propuestas, ruta_salida=_buf_opt
-                        )
-                        _maestro_opt_data = _buf_opt.getvalue()
-                        _kpis["nuevas"] = _resumen_opt.get("marcas_agregadas", 0) + _resumen_opt.get("caracteristicas_agregadas", 0)
-
-                _shared["df_resultado"] = _df_resultado
-                _shared["df_pendientes"] = _df_resultado[_pend_mask].copy()
-                _shared["kpis"] = _kpis
-                _shared["maestro_opt_data"] = _maestro_opt_data
-                _shared["resumen_opt"] = _resumen_opt
-
-            except Exception as e:
-                _shared["progress_error"] = str(e)
-                _shared["progress_text"] = f"❌ Error: {e}"
-            finally:
-                _shared["done"] = True
-
-        # El pipeline se ejecuta en un PROCESO independiente cuando el sistema
-        # lo permite (fork). En un hilo, el trabajo CPU-bound comparte el GIL
-        # con el servidor y, en instancias de un solo nucleo como Streamlit
-        # Cloud gratuito, la interfaz se congela por completo.
-        if _USA_PROCESO:
-            _cola = mp.Queue()
-            _proceso = mp.Process(
-                target=ejecutar_pipeline,
-                args=(_cola, df_raw_bytes, maestro_bytes, hoja_raw),
-                daemon=True,
-            )
-            st.session_state._cola = _cola
-            st.session_state._proceso = _proceso
-            try:
-                _proceso.start()
-            except Exception as _error_inicio:
-                st.session_state.processing_active = False
-                st.session_state.processing_error = str(_error_inicio)
-                st.session_state._proceso = None
-        else:
-            # Windows no ofrece fork y "spawn" reimportaria este script en el
-            # hijo; en local el hilo basta porque hay varios nucleos.
-            _thread = threading.Thread(
-                target=_procesar_en_hilo,
-                args=(_shared, df_raw_bytes, maestro_bytes, hoja_raw, usar_ia, api_key, rpm_limite, modelo_ia),
-                daemon=True,
-            )
-            _thread.start()
+        # El worker externo mantiene el cálculo fuera del runner de Streamlit.
+        try:
+            (
+                _worker,
+                _worker_dir,
+                _worker_status_path,
+                _worker_result_path,
+                _worker_log_path,
+            ) = _iniciar_worker_subprocess(df_raw_bytes, maestro_bytes, hoja_raw)
+            st.session_state._worker_process = _worker
+            st.session_state._worker_dir = str(_worker_dir)
+            st.session_state._worker_status_path = str(_worker_status_path)
+            st.session_state._worker_result_path = str(_worker_result_path)
+            st.session_state._worker_log_path = str(_worker_log_path)
+        except Exception as _error_inicio:
+            st.session_state.processing_active = False
+            st.session_state.processing_error = f"No se pudo iniciar el worker: {_error_inicio}"
 
 if st.session_state.get("processing_error"):
     st.error(f"Error durante la clasificación: {st.session_state.processing_error}")
