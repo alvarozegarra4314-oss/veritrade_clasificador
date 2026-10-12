@@ -1167,14 +1167,6 @@ listo_para_procesar = (
     and not st.session_state.get("processing_active", False)
 )
 
-# La barra se dibuja sobre el botón, como siempre. El flag de reserva se
-# activa en el on_click, antes de esta línea, así que el fragmento ya queda
-# registrado en la pasada del clic y su refresco automático se programa.
-if st.session_state.get("_procesar_reservado", False) or st.session_state.get(
-    "processing_active", False
-):
-    _fragmento_progreso_rerun()
-
 procesar = st.button(
     _t("Iniciar clasificación"),
     type="primary",
@@ -1254,6 +1246,9 @@ if procesar:
                 _shared["progress_error"] = f"No se pudo iniciar el worker: {_error_inicio}"
 
         threading.Thread(target=_lanzar_worker, daemon=True).start()
+
+if st.session_state.get("processing_active", False):
+    _fragmento_progreso_rerun()
 
 if st.session_state.get("processing_error"):
     st.error(f"Error durante la clasificación: {st.session_state.processing_error}")
