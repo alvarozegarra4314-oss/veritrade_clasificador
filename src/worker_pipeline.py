@@ -29,13 +29,12 @@ def ejecutar_pipeline(cola, bytes_raw, bytes_maestro, hoja):
       ("fin", DataFrame, kpis, filas_pendientes)
       ("error", mensaje, None, None)
     """
-    import pandas as pd
-
-    from src.excel_io import sanitizar_dataframe_para_excel  # noqa: F401
-    from src.maestro.loader import CargarMaestro
-    from src.pipeline import procesar_dataframe_dinamico
-
     try:
+        import pandas as pd
+
+        from src.maestro.loader import CargarMaestro
+        from src.pipeline import procesar_dataframe_dinamico
+
         df_raw = pd.read_excel(BytesIO(bytes_raw), sheet_name=hoja, engine="openpyxl")
         maestro = CargarMaestro(BytesIO(bytes_maestro))
 

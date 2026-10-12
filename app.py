@@ -100,7 +100,7 @@ _TRADUCCIONES = {
         "Clasificación automática de importaciones": "Automated import classification",
         "De descripciones libres": "From free-text descriptions",
         "a datos clasificados": "to classified data",
-        "Miles de filas procesadas en segundos": "Thousands of rows processed in seconds",
+        "Miles de filas procesadas en minutos": "Thousands of rows processed in minutes",
         "Reglas del maestro aplicadas automáticamente": "Rulebook rules applied automatically",
         "Excel listo para descargar al instante": "Excel ready to download instantly",
         # Fragmentos para traducir la barra de progreso
@@ -185,7 +185,7 @@ _TRADUCCIONES = {
         "Clasificación automática de importaciones": "Classification automatique des importations",
         "De descripciones libres": "De descriptions libres",
         "a datos clasificados": "aux données classifiées",
-        "Miles de filas procesadas en segundos": "Des milliers de lignes traitées en quelques secondes",
+        "Miles de filas procesadas en minutos": "Des milliers de lignes traitées en quelques minutes",
         "Reglas del maestro aplicadas automáticamente": "Règles du référentiel appliquées automatiquement",
         "Excel listo para descargar al instante": "Fichier Excel prêt à télécharger immédiatement",
         # Fragmentos para traducir la barra de progreso
@@ -594,7 +594,7 @@ if "progress_pct" not in st.session_state:
 if "progress_text" not in st.session_state:
     st.session_state.progress_text = ""
 if "processing_error" not in st.session_state:
-    st.session_state.progress_error = None
+    st.session_state.processing_error = None
 if "_procesar_reservado" not in st.session_state:
     st.session_state._procesar_reservado = False
 
@@ -771,6 +771,15 @@ def _fragmento_progreso_rerun():
                 _sh["progress_text"] = f"❌ Error: {_msg[1]}"
                 _sh["done"] = True
 
+        _proceso = st.session_state.get("_proceso")
+        if _proceso is not None and not _sh.get("done") and not _proceso.is_alive():
+            _codigo_salida = _proceso.exitcode
+            _sh["progress_error"] = (
+                f"El proceso de clasificación terminó sin devolver resultados (código {_codigo_salida})."
+            )
+            _sh["progress_text"] = f"❌ Error: {_sh['progress_error']}"
+            _sh["done"] = True
+
     if not st.session_state.get("processing_active", False):
         if st.session_state.get("_procesar_reservado", False):
             st.progress(0.0, text=_t("Preparando procesamiento..."))
@@ -793,7 +802,10 @@ def _fragmento_progreso_rerun():
         st.session_state.maestro_opt_data = _sh.get("maestro_opt_data")
         st.session_state.resumen_opt = _sh.get("resumen_opt")
         st.session_state.df_export_data = None
-        st.session_state.proceso_completado = True
+        st.session_state.proceso_completado = (
+            _sh.get("progress_error") is None and st.session_state.df_resultado is not None
+        )
+        st.session_state.processing_error = _sh.get("progress_error")
         st.session_state.processing_active = False
         st.session_state.processing_done = True
         if not st.session_state.get("_rerun_triggered"):
@@ -815,7 +827,7 @@ st.markdown(
         <h1>{_t("De descripciones libres")} <span class="hl">{_t("a datos clasificados")}</span></h1>
         <div class="hero-benefits">
           <div class="hero-benefit"><i>🎯</i><span>{_t("Reglas del maestro aplicadas automáticamente")}</span></div>
-          <div class="hero-benefit"><i>⚡</i><span>{_t("Miles de filas procesadas en segundos")}</span></div>
+          <div class="hero-benefit"><i>⚡</i><span>{_t("Miles de filas procesadas en minutos")}</span></div>
           <div class="hero-benefit"><i>📥</i><span>{_t("Excel listo para descargar al instante")}</span></div>
         </div>
       </div>
@@ -1131,6 +1143,7 @@ if procesar:
         st.session_state._thread_shared = _shared
         st.session_state.processing_active = True
         st.session_state.processing_done = False
+        st.session_state.processing_error = None
         st.session_state.proceso_completado = False
         st.session_state._rerun_triggered = False
 
@@ -1278,7 +1291,12 @@ if procesar:
             )
             st.session_state._cola = _cola
             st.session_state._proceso = _proceso
-            _proceso.start()
+            try:
+                _proceso.start()
+            except Exception as _error_inicio:
+                st.session_state.processing_active = False
+                st.session_state.processing_error = str(_error_inicio)
+                st.session_state._proceso = None
         else:
             # Windows no ofrece fork y "spawn" reimportaria este script en el
             # hijo; en local el hilo basta porque hay varios nucleos.
@@ -1288,6 +1306,9 @@ if procesar:
                 daemon=True,
             )
             _thread.start()
+
+if st.session_state.get("processing_error"):
+    st.error(f"Error durante la clasificación: {st.session_state.processing_error}")
 
 # =====================================================================
 # SECCIÓN 4: ÁREA DE RESULTADOS (PERSISTENTE)
