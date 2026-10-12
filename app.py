@@ -4,15 +4,13 @@ import warnings
 import threading
 import multiprocessing as mp
 
-# ¿Se puede ejecutar el pipeline en un proceso aparte?
-# En Linux (Streamlit Cloud) existe "fork" y es justo lo que我们需要; en Windows
-# solo hay "spawn", que reimportaría este script en el hijo, así que allí se
-# usa un hilo (el PC tiene varios núcleos y no hay problema de GIL).
-_USA_PROCESO = "fork" in mp.get_all_start_methods()
-if _USA_PROCESO and mp.get_start_method(allow_none=True) != "fork":
-    # Fijamos fork como método por defecto para no depender de la versión de
-    # Python (en 3.14 el valor por defecto de Linux pasó a ser forkserver).
-    mp.set_start_method("fork", force=True)
+# En Linux usamos forkserver para no heredar locks de los hilos de Streamlit;
+# Windows usa un hilo porque spawn reimportaría este script en el proceso hijo.
+_METODOS_MP = mp.get_all_start_methods()
+_USA_PROCESO = "fork" in _METODOS_MP
+if _USA_PROCESO:
+    _METODO_PROCESO = "forkserver" if "forkserver" in _METODOS_MP else "fork"
+    mp.set_start_method(_METODO_PROCESO, force=True)
 from pathlib import Path
 from io import BytesIO
 from datetime import datetime
