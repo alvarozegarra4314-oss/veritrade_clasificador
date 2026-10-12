@@ -1,11 +1,13 @@
 import sys
 import time
 import warnings
+import threading
 import json
 import pickle
 import shutil
 import subprocess
 import tempfile
+from typing import cast
 from pathlib import Path
 from io import BytesIO
 from datetime import datetime
@@ -792,11 +794,19 @@ def _fragmento_progreso_rerun():
             st.progress(0.0, text=_t("Preparando procesamiento..."))
         return
 
-    _proceso = st.session_state.get("_worker_process")
-    if _proceso is not None and not _sh.get("done"):
-        _ruta_estado = Path(st.session_state._worker_status_path)
-        _ruta_resultado = Path(st.session_state._worker_result_path)
-        _ruta_log = Path(st.session_state._worker_log_path)
+    _proceso = _sh.get("worker_process")
+    if _proceso is None and not _sh.get("done"):
+        if _sh.get("progress_error"):
+            _sh["done"] = True
+        elif time.time() - _sh.get("started_at", time.time()) > 60:
+            _sh["launch_cancelled"] = True
+            _sh["progress_error"] = "No se pudo iniciar el worker dentro de 60 segundos."
+            _sh["progress_text"] = f"❌ Error: {_sh['progress_error']}"
+            _sh["done"] = True
+    elif _proceso is not None and not _sh.get("done"):
+        _ruta_estado = Path(_sh["worker_status_path"])
+        _ruta_resultado = Path(_sh["worker_result_path"])
+        _ruta_log = Path(_sh["worker_log_path"])
         try:
             _estado = json.loads(_ruta_estado.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -834,7 +844,7 @@ def _fragmento_progreso_rerun():
         else:
             _actualizado = _estado.get("updated_at", _sh.get("started_at", time.time()))
             _fase = _estado.get("phase", "startup")
-            _limite_sin_latido = 300 if _fase in ("startup", "read") else 90
+            _limite_sin_latido = 60 if _fase == "startup" else 300 if _fase == "read" else 90
             _tiempo_total = time.time() - _sh.get("started_at", time.time())
             _tiempo_sin_latido = time.time() - _actualizado
             if _tiempo_total > 1800 or _tiempo_sin_latido > _limite_sin_latido:
@@ -874,14 +884,9 @@ def _fragmento_progreso_rerun():
         st.session_state.processing_error = _sh.get("progress_error")
         st.session_state.processing_active = False
         st.session_state.processing_done = True
-        _directorio_worker = st.session_state.get("_worker_dir")
+        _directorio_worker = _sh.get("worker_dir")
         if _directorio_worker:
             shutil.rmtree(_directorio_worker, ignore_errors=True)
-        for _clave_worker in (
-            "_worker_process", "_worker_dir", "_worker_status_path",
-            "_worker_result_path", "_worker_log_path",
-        ):
-            st.session_state.pop(_clave_worker, None)
         if not st.session_state.get("_rerun_triggered"):
             st.session_state._rerun_triggered = True
             st.rerun()
@@ -1222,22 +1227,33 @@ if procesar:
         st.session_state._rerun_triggered = False
 
         # El worker externo mantiene el cálculo fuera del runner de Streamlit.
-        try:
-            (
-                _worker,
-                _worker_dir,
-                _worker_status_path,
-                _worker_result_path,
-                _worker_log_path,
-            ) = _iniciar_worker_subprocess(df_raw_bytes, maestro_bytes, hoja_raw)
-            st.session_state._worker_process = _worker
-            st.session_state._worker_dir = str(_worker_dir)
-            st.session_state._worker_status_path = str(_worker_status_path)
-            st.session_state._worker_result_path = str(_worker_result_path)
-            st.session_state._worker_log_path = str(_worker_log_path)
-        except Exception as _error_inicio:
-            st.session_state.processing_active = False
-            st.session_state.processing_error = f"No se pudo iniciar el worker: {_error_inicio}"
+        _bytes_maestro_worker = cast(bytes, maestro_bytes)
+        _hoja_worker = cast(str, hoja_raw)
+
+        def _lanzar_worker():
+            try:
+                (
+                    _worker,
+                    _worker_dir,
+                    _worker_status_path,
+                    _worker_result_path,
+                    _worker_log_path,
+                ) = _iniciar_worker_subprocess(df_raw_bytes, _bytes_maestro_worker, _hoja_worker)
+                if _shared.get("launch_cancelled"):
+                    _terminar_worker(_worker)
+                    shutil.rmtree(_worker_dir, ignore_errors=True)
+                    return
+                _shared.update(
+                    worker_process=_worker,
+                    worker_dir=str(_worker_dir),
+                    worker_status_path=str(_worker_status_path),
+                    worker_result_path=str(_worker_result_path),
+                    worker_log_path=str(_worker_log_path),
+                )
+            except Exception as _error_inicio:
+                _shared["progress_error"] = f"No se pudo iniciar el worker: {_error_inicio}"
+
+        threading.Thread(target=_lanzar_worker, daemon=True).start()
 
 if st.session_state.get("processing_error"):
     st.error(f"Error durante la clasificación: {st.session_state.processing_error}")
