@@ -731,6 +731,8 @@ def _fragmento_progreso_rerun():
     """Refresca la barra mientras el trabajo avanza."""
     _sh = st.session_state.get("_thread_shared")
     if _sh is None:
+        if st.session_state.get("_procesar_reservado", False):
+            st.progress(0.0, text=_t("Preparando procesamiento..."))
         return
 
     # Con proceso aparte, el progreso llega por la cola.
